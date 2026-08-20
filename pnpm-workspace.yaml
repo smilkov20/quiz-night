@@ -1,0 +1,4 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  # alternatives/* is deliberately excluded — reference implementations only.

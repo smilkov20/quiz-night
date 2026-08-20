@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "quiz-night",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    // Add your deployed frontend origin here before going live.
+    "ALLOWED_ORIGINS": "http://localhost:5173"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "QUIZ_SESSION", "class_name": "QuizSession" },
+      { "name": "QUIZ_LIBRARY", "class_name": "QuizLibrary" }
+    ]
+  },
+  "migrations": [
+    {
+      // SQLite-backed objects are the ones included on the free plan.
+      "tag": "v1",
+      "new_sqlite_classes": ["QuizSession", "QuizLibrary"]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Render blueprint. Free plan: 512 MB, sleeps after 15 min without traffic —
+# but WebSocket messages count as traffic, so a running quiz stays awake.
+# Open the room a few minutes early to absorb the cold start.
+services:
+  - type: web
+    name: quiz-night
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @quiz/web build
+    startCommand: pnpm --filter @quiz/server start
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST_PASSWORD
+        sync: false          # set this in the Render dashboard
+      - key: WEB_ROOT
+        value: /opt/render/project/src/apps/web/dist
+      - key: NODE_VERSION
+        value: "22"
