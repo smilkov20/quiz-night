@@ -49,6 +49,48 @@ export const seedQuiz: Quiz = {
         { id: "q12", order: 1, prompt: "Which country was the first to grant women the vote nationally?", correct: "New Zealand", accepted: [], maxPoints: null, mediaSource: "none" },
       ],
     },
+    {
+      id: "r6", order: 5, title: "Nail, Hair or Wall?",
+      answerFormat: "sort", mediaType: "none", timeLimit: 90, defaultMaxPoints: 3,
+      questions: [
+        {
+          id: "q13", order: 0,
+          prompt: "Each of these is a real shade name. Which is a nail polish, which a hair colour, and which a paint?",
+          correct: "", accepted: [], maxPoints: 3, mediaSource: "none",
+          categories: ["Nail polish", "Hair colour", "Paint colour"],
+          items: [
+            { word: "Ballet Slippers", category: "Nail polish" },
+            { word: "Ash Blonde", category: "Hair colour" },
+            { word: "Elephant's Breath", category: "Paint colour" },
+          ],
+        },
+      ],
+    },
+    {
+      id: "r7", order: 6, title: "In Order",
+      answerFormat: "order", mediaType: "none", timeLimit: 60, defaultMaxPoints: 4,
+      questions: [
+        {
+          id: "q14", order: 0,
+          prompt: "Put these planets in order of distance from the Sun, closest first.",
+          correct: "", accepted: [], maxPoints: 4, mediaSource: "none",
+          sequence: ["Mercury", "Venus", "Earth", "Mars"],
+        },
+      ],
+    },
+    {
+      id: "r8", order: 7, title: "Buzzer Round",
+      answerFormat: "fastest", mediaType: "none", timeLimit: 30,
+      defaultMaxPoints: 1, fastestPoints: 2,
+      questions: [
+        {
+          id: "q15", order: 0,
+          prompt: "How many keys does a standard piano have?",
+          correct: "88", accepted: [], maxPoints: null,
+          fastestMode: "closest", mediaSource: "none",
+        },
+      ],
+    },
   ],
   tiebreakers: [
     { id: "t1", order: 0, mode: "exact", prompt: "Which US state can be typed using only the home row of a QWERTY keyboard?", correct: "Alaska", timeLimit: 30 },

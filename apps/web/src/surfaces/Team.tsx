@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Zap } from "lucide-react";
-import { answerKey, maxPointsOf, parseSortAnswer, type Snapshot } from "@quiz/shared";
+import { answerKey, maxPointsOf, parseSortAnswer, parseOrderAnswer, seededShuffle, type Snapshot } from "@quiz/shared";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Countdown, Eyebrow, Leaderboard, Pill } from "../ui/kit";
 import { useQuizSocket, apiFetch, API } from "../useQuizSocket";
@@ -330,6 +330,13 @@ function AnswerPad({ snapshot, teamId, remaining, onAnswer }: {
         />
       )}
 
+      {(canAnswer || locked) && round.answerFormat === "order" && (
+        <OrderPad
+          question={question} teamId={teamId} value={stored?.value ?? ""}
+          canAnswer={canAnswer} onChange={(v) => onAnswer(question.id, v)}
+        />
+      )}
+
       {(canAnswer || locked) && round.answerFormat === "sort" && (
         <SortPad
           question={question} value={stored?.value ?? ""} canAnswer={canAnswer}
@@ -456,8 +463,9 @@ function FastestPad({ question, committed, committedValue, canAnswer, onCommit }
   );
 }
 
-/** Chips rather than drag-and-drop: dragging a dozen words on a phone in a
-    dark pub is miserable, and tapping is faster anyway. */
+/** Two-step tapping: pick a word up, then drop it in a category. Buckets show
+    what's in them, so the groups you're building are visible — chips beside a
+    word read as labels, which is what made this incomprehensible. */
 function SortPad({ question, value, canAnswer, onChange }: {
   question: { categories?: string[]; items?: { word: string; category: string }[] };
   value: string;
@@ -467,50 +475,97 @@ function SortPad({ question, value, canAnswer, onChange }: {
   const categories = question.categories ?? [];
   const words = (question.items ?? []).map((i) => i.word);
   const placed = parseSortAnswer(value);
+  const [held, setHeld] = useState<string | null>(null);
 
-  const assign = (word: string, category: string) => {
-    const next = { ...placed };
-    if (next[word] === category) delete next[word];
-    else next[word] = category;
-    onChange(JSON.stringify(next));
+  const unfiled = words.filter((w) => !placed[w]);
+  const inCategory = (cat: string) => words.filter((w) => placed[w] === cat);
+
+  const drop = (cat: string) => {
+    if (!held) return;
+    onChange(JSON.stringify({ ...placed, [held]: cat }));
+    setHeld(null);
   };
 
-  const done = words.filter((w) => placed[w]).length;
+  const pullOut = (word: string) => {
+    const next = { ...placed };
+    delete next[word];
+    onChange(JSON.stringify(next));
+    setHeld(word);
+  };
+
+  const chip = (word: string, selected: boolean, onClick: () => void) => (
+    <button key={word} disabled={!canAnswer} onClick={onClick}
+      className="rounded-full px-3 py-2 text-sm"
+      style={{
+        background: selected ? C.biro : C.card,
+        color: selected ? C.onInk : C.ink,
+        border: `2px solid ${selected ? C.biro : C.rule}`,
+        fontWeight: 600, opacity: canAnswer ? 1 : 0.6,
+      }}>
+      {word}
+    </button>
+  );
 
   return (
     <div>
-      <div className="text-xs mb-2" style={{ color: done === words.length ? C.correct : C.inkDim }}>
-        {done} of {words.length} filed
+      <div className="mb-3">
+        <div className="text-xs mb-1.5" style={{ color: unfiled.length === 0 ? C.correct : C.inkDim, fontWeight: 600 }}>
+          {unfiled.length === 0
+            ? "All filed"
+            : held
+            ? `Now tap a group for "${held}"`
+            : `${unfiled.length} left — tap a word to pick it up`}
+        </div>
+        <div className="flex flex-wrap gap-1.5 min-h-10">
+          {unfiled.map((w) => chip(w, held === w, () => setHeld(held === w ? null : w)))}
+        </div>
       </div>
+
       <div className="flex flex-col gap-2">
-        {words.map((word) => (
-          <div key={word} className="rounded-lg border p-2" style={{ background: C.card, borderColor: C.rule }}>
-            <div className="mb-1.5" style={{ fontWeight: 600 }}>{word}</div>
-            <div className="flex flex-wrap gap-1.5">
-              {categories.map((cat) => {
-                const active = placed[word] === cat;
-                return (
-                  <button key={cat} disabled={!canAnswer} onClick={() => assign(word, cat)}
-                    className="rounded-full px-3 py-1.5 text-sm"
-                    style={{
-                      background: active ? C.biro : C.row,
-                      color: active ? C.onInk : C.ink,
-                      border: `1px solid ${active ? C.biro : C.rule}`,
-                      fontWeight: active ? 600 : 400,
-                      opacity: canAnswer ? 1 : 0.6,
-                    }}>
-                    {cat}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        {categories.map((cat) => {
+          const contents = inCategory(cat);
+          const armed = Boolean(held);
+          return (
+            <button key={cat} disabled={!canAnswer || !held} onClick={() => drop(cat)}
+              className="text-left rounded-xl p-3"
+              style={{
+                background: armed ? "rgba(42,71,196,0.06)" : C.card,
+                border: `2px ${armed ? "dashed" : "solid"} ${armed ? C.biro : C.rule}`,
+                cursor: armed ? "pointer" : "default",
+              }}>
+              <div className="text-xs uppercase mb-1.5"
+                style={{ color: C.inkDim, letterSpacing: "0.14em", fontWeight: 700 }}>
+                {cat}
+              </div>
+              {contents.length === 0 ? (
+                <div className="text-sm" style={{ color: C.inkDim }}>
+                  {armed ? "Tap to drop it here" : "Empty"}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {contents.map((w) => (
+                    <span key={w}
+                      onClick={(e) => { e.stopPropagation(); if (canAnswer) pullOut(w); }}
+                      className="rounded-full px-3 py-1.5 text-sm"
+                      style={{ background: C.biro, color: C.onInk, fontWeight: 600 }}>
+                      {w}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
+
+      {categories.length < 2 && (
+        <p className="mt-3 text-xs" style={{ color: C.marker }}>
+          This question only has one group, so there's nothing to sort.
+        </p>
+      )}
     </div>
   );
 }
-
 
 function TiebreakPad({ tb, initial, onChange }: {
   tb?: { id: string; prompt: string; mode: "exact" | "closest" };
@@ -532,5 +587,71 @@ function TiebreakPad({ tb, initial, onChange }: {
         className="w-full rounded-lg border px-3 py-3 text-lg"
         style={{ background: C.card, borderColor: C.rule, color: C.biro }} />
     </>
+  );
+}
+
+
+/** Tap items in the order you want them. The first tap is 1, the next is 2,
+    and so on — tapping a numbered item takes it back out and renumbers the
+    rest, so there's no way to end up with a gap. */
+function OrderPad({ question, teamId, value, canAnswer, onChange }: {
+  question: { id: string; sequence?: string[] };
+  teamId: string;
+  value: string;
+  canAnswer: boolean;
+  onChange: (value: string) => void;
+}) {
+  const truth = question.sequence ?? [];
+  // Presenting them in the stored order would hand over the answer.
+  const shown = useMemo(
+    () => seededShuffle(truth, `${teamId}:${question.id}`),
+    [truth, teamId, question.id]
+  );
+  const chosen = parseOrderAnswer(value);
+
+  const toggle = (item: string) => {
+    const at = chosen.indexOf(item);
+    const next = at >= 0 ? chosen.filter((x) => x !== item) : [...chosen, item];
+    onChange(JSON.stringify(next));
+  };
+
+  const remaining = shown.length - chosen.length;
+
+  return (
+    <div>
+      <div className="text-xs mb-2" style={{ color: remaining === 0 ? C.correct : C.inkDim, fontWeight: 600 }}>
+        {remaining === 0
+          ? "All placed — tap one to change your mind"
+          : `Tap in order · ${chosen.length + 1} of ${shown.length} next`}
+      </div>
+      <div className="flex flex-col gap-2">
+        {shown.map((item) => {
+          const at = chosen.indexOf(item);
+          const placed = at >= 0;
+          return (
+            <button key={item} disabled={!canAnswer} onClick={() => toggle(item)}
+              className="flex items-center gap-3 rounded-xl px-3 py-3 text-left"
+              style={{
+                background: placed ? C.biro : C.card,
+                color: placed ? C.onInk : C.ink,
+                border: `2px solid ${placed ? C.biro : C.rule}`,
+                opacity: canAnswer ? 1 : 0.6,
+              }}>
+              <span
+                className="inline-flex items-center justify-center rounded-full shrink-0"
+                style={{
+                  width: 30, height: 30,
+                  background: placed ? C.onInk : C.row,
+                  color: placed ? C.biro : C.inkDim,
+                  fontFamily: FONT_DISPLAY, fontSize: 17,
+                }}>
+                {placed ? at + 1 : "·"}
+              </span>
+              <span style={{ fontWeight: 600, fontSize: 17 }}>{item}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

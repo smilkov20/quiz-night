@@ -5,7 +5,7 @@ import {
   Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy, Coffee, Power,
 } from "lucide-react";
 import {
-  answerKey, maxPointsOf, normalise, scoreSort, type Round, type Snapshot,
+  answerKey, maxPointsOf, normalise, scoreSort, scoreOrder, type Round, type Snapshot,
 } from "@quiz/shared";
 import { C, FONT_DATA, FONT_DISPLAY } from "../ui/theme";
 import { Btn, Countdown, Eyebrow, Leaderboard, Panel, Pill, useToasts, useConfirm } from "../ui/kit";
@@ -510,13 +510,15 @@ function Grading({ snapshot, onClose, onAward }: {
               if (round.answerFormat === "sort") {
                 const { correct, total } = scoreSort(a.value, q);
                 display = `${correct} of ${total} filed correctly`;
-                sub = undefined;
+              } else if (round.answerFormat === "order") {
+                const { correct, total } = scoreOrder(a.value, q);
+                display = `${correct} of ${total} in the right place`;
               } else if (round.answerFormat === "fastest") {
                 sub = new Date(a.submittedAt).toLocaleTimeString(undefined, {
                   minute: "2-digit", second: "2-digit",
                 });
               }
-              const key = round.answerFormat === "sort" || round.answerFormat === "fastest"
+              const key = round.answerFormat === "sort" || round.answerFormat === "fastest" || round.answerFormat === "order"
                 ? t.id                      // never merge rows where timing or detail matters
                 : normalise(a.value) || "(blank)";
               const existing = clusters.get(key);

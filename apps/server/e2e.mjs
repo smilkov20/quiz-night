@@ -298,6 +298,47 @@ const gone = await new Promise((resolve) => {
 });
 assert(gone === 4004, "a closed room can no longer be rejoined");
 
+/* Ordering: marked per position, and the presented order must never be the
+   answer or the round is free points. */
+const ordQuiz = JSON.parse(JSON.stringify(quiz));
+ordQuiz.rounds = [{
+  id: "o1", order: 0, title: "Order", answerFormat: "order", mediaType: "none",
+  timeLimit: 30, defaultMaxPoints: 4,
+  questions: [{ id: "oq1", order: 0, prompt: "Closest first", correct: "", accepted: [],
+                maxPoints: 4, mediaSource: "none",
+                sequence: ["Mercury", "Venus", "Earth", "Mars"] }],
+}];
+const o = await post("/api/sessions", { quiz: ordQuiz }, KEY);
+const oHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${o.joinCode}&role=host&key=${KEY}`);
+const oTeam = await post("/api/join", { code: o.joinCode, name: "Orderers" });
+const oSock = await open(`ws://127.0.0.1:${PORT}/ws?code=${o.joinCode}&role=team&teamId=${oTeam.teamId}`);
+await wait(120);
+const oAct = (payload) => oHost.send(JSON.stringify({ type: "host", payload }));
+oAct({ action: "begin_round" }); await wait(60);
+oAct({ action: "reveal_question" }); await wait(60);
+oAct({ action: "start_timer" }); await wait(60);
+// First two right, last two swapped.
+oSock.send(JSON.stringify({
+  type: "answer", questionId: "oq1",
+  value: JSON.stringify(["Mercury", "Venus", "Mars", "Earth"]),
+})); await wait(150);
+oAct({ action: "lock" }); await wait(150);
+const oPts = last(oHost).session.answers[`${oTeam.teamId}:oq1`]?.points;
+assert(oPts === 2, `two of four in the right place scores 2 of 4 (got ${oPts})`);
+
+/* A perfect answer must score full marks, and the sequence must survive the
+   round trip intact. */
+oAct({ action: "reopen" }); await wait(80);
+oSock.send(JSON.stringify({
+  type: "answer", questionId: "oq1",
+  value: JSON.stringify(["Mercury", "Venus", "Earth", "Mars"]),
+})); await wait(150);
+oAct({ action: "lock" }); await wait(150);
+assert(last(oHost).session.answers[`${oTeam.teamId}:oq1`]?.points === 4,
+  "a perfect order scores full marks");
+assert(last(oHost).session.quiz.rounds[0].questions[0].sequence.join() === "Mercury,Venus,Earth,Mars",
+  "the correct sequence survives the round trip");
+
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wsB].forEach(w => w.close());
 process.exit(0);

@@ -8,7 +8,9 @@ export type AnswerFormat =
   /** Everyone answers the same question; the first correct answer scores more. */
   | "fastest"
   /** Teams file a list of words into categories. */
-  | "sort";
+  | "sort"
+  /** Teams put items into a sequence: first, second, third. */
+  | "order";
 export type MediaType = "none" | "audio" | "video" | "image";
 export type MediaSource = "none" | "youtube" | "file";
 
@@ -26,6 +28,8 @@ export interface Question {
   /** sort: the buckets, and which word belongs in which. */
   categories?: string[];
   items?: { word: string; category: string }[];
+  /** order: the items in their correct sequence. Never shown in this order. */
+  sequence?: string[];
   mediaSource: MediaSource;
   /** YouTube URL or id, when mediaSource is "youtube" */
   url?: string;
@@ -276,4 +280,49 @@ export function scoreSort(value: string, question: Question): { correct: number;
     if (normalise(placed[item.word] ?? "") === normalise(item.category)) correct++;
   }
   return { correct, total: items.length };
+}
+
+
+/* ---------- order ---------- */
+
+export function parseOrderAnswer(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** One point per item in its correct position. Partial credit matters here:
+    getting three of five right should beat getting none. */
+export function scoreOrder(value: string, question: Question): { correct: number; total: number } {
+  const truth = question.sequence ?? [];
+  const chosen = parseOrderAnswer(value);
+  let correct = 0;
+  truth.forEach((item, i) => {
+    if (normalise(chosen[i] ?? "") === normalise(item)) correct++;
+  });
+  return { correct, total: truth.length };
+}
+
+/** Deterministic shuffle. The presented order must not be the answer, but it
+    also must not change when a team reconnects mid-question — so it's seeded
+    from the team and question rather than being random. */
+export function seededShuffle<T>(items: T[], seed: string): T[] {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const rand = () => {
+    h ^= h << 13; h ^= h >>> 17; h ^= h << 5;
+    return Math.abs(h) / 2147483647;
+  };
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }

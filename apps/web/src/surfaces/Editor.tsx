@@ -286,6 +286,7 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                       <option value="yes_no">Yes / No</option>
                       <option value="fastest">Fastest wins</option>
                       <option value="sort">Sort into categories</option>
+                      <option value="order">Put in order</option>
                     </select>
                   </label>
                   <label className="flex flex-col gap-1">
@@ -349,6 +350,10 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                                 <option value="closest">it's closest to the number</option>
                               </select>
                             </div>
+                          )}
+
+                          {r.answerFormat === "order" && (
+                            <OrderEditor question={q} onPatch={(patch) => patchQuestion(r.id, q.id, patch)} field={field} />
                           )}
 
                           {r.answerFormat === "sort" && (
@@ -485,6 +490,51 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** The list is stored in its correct order; teams always see it shuffled. */
+function OrderEditor({ question, onPatch, field }: {
+  question: Question;
+  onPatch: (patch: Partial<Question>) => void;
+  field: React.CSSProperties;
+}) {
+  const seq = question.sequence ?? [];
+  const set = (i: number, v: string) => onPatch({ sequence: seq.map((x, n) => (n === i ? v : x)) });
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= seq.length) return;
+    const next = [...seq];
+    [next[i], next[j]] = [next[j], next[i]];
+    onPatch({ sequence: next });
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
+      <Eyebrow>Correct order, first to last</Eyebrow>
+      {seq.map((item, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: C.biroDim, minWidth: 18 }}>{i + 1}</span>
+          <input value={item} placeholder="Item"
+            onChange={(e) => set(i, e.target.value)}
+            className="flex-1 min-w-0 rounded border px-2 py-1 text-sm" style={{ ...field, background: C.page }} />
+          <button onClick={() => move(i, -1)} disabled={i === 0} title="Move up"
+            style={{ color: C.inkDim, opacity: i === 0 ? 0.25 : 1 }}><ChevronUp size={14} /></button>
+          <button onClick={() => move(i, 1)} disabled={i === seq.length - 1} title="Move down"
+            style={{ color: C.inkDim, opacity: i === seq.length - 1 ? 0.25 : 1 }}><ChevronDown size={14} /></button>
+          <button onClick={() => onPatch({ sequence: seq.filter((_, n) => n !== i) })}
+            style={{ color: C.inkDim }}><Trash2 size={13} /></button>
+        </div>
+      ))}
+      <button onClick={() => onPatch({ sequence: [...seq, ""] })}
+        className="self-start rounded border px-2 py-1 text-xs"
+        style={{ borderColor: C.rule, color: C.ink, fontWeight: 600 }}>
+        + Item
+      </button>
+      <p className="text-xs" style={{ color: C.inkDim }}>
+        Teams see these shuffled. One point per item in the right place.
+      </p>
+    </div>
+  );
+}
+
 /** Categories as a comma-separated line, because typing three words is faster
     than three separate add-a-field interactions. */
 function SortEditor({ question, onPatch, field }: {
@@ -507,11 +557,27 @@ function SortEditor({ question, onPatch, field }: {
 
   return (
     <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
-      <input
-        value={categories.join(", ")}
-        placeholder="Categories, comma separated — e.g. Fruit, Vegetable, Nut"
-        onChange={(e) => setCategories(e.target.value)}
-        className="rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.page }} />
+      <div>
+        <Eyebrow>Groups to sort into</Eyebrow>
+        <input
+          value={categories.join(", ")}
+          placeholder="Fruit, Vegetable, Nut"
+          onChange={(e) => setCategories(e.target.value)}
+          className="w-full rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.page }} />
+        <p className="text-xs mt-1" style={{ color: C.inkDim }}>
+          Comma separated. These are the buckets, not the words.
+        </p>
+      </div>
+
+      {categories.length === 1 && (
+        <p className="text-xs rounded px-2 py-1.5"
+          style={{ background: C.warnBg, color: C.ink, border: `1px solid ${C.marker}` }}>
+          One group means every word has the same answer and there's nothing to sort.
+          Add at least two.
+        </p>
+      )}
+
+      {items.length > 0 && <Eyebrow>Words, and where each belongs</Eyebrow>}
 
       {items.map((it, i) => (
         <div key={i} className="flex gap-1.5">
@@ -537,7 +603,9 @@ function SortEditor({ question, onPatch, field }: {
       </button>
 
       <p className="text-xs" style={{ color: C.inkDim }}>
-        Scored per word: {items.length} to file, marked automatically.
+        {items.length === 0
+          ? "No words yet."
+          : `${items.length} word${items.length === 1 ? "" : "s"} to file across ${categories.length} group${categories.length === 1 ? "" : "s"}, marked automatically.`}
       </p>
     </div>
   );

@@ -2,7 +2,7 @@ import type { WebSocket } from "ws";
 import {
   ClientMessageSchema, makeToken, LATE_SUBMIT_GRACE_MS, CLOSE_NO_ROOM,
   answerKey, computeStandings, countUngraded, maxPointsOf, normalise, tiedForFirst,
-  scoreFastest, scoreSort,
+  scoreFastest, scoreSort, scoreOrder,
   type ConnectionRole, type HostAction, type Quiz, type ServerMessage,
   type Session, type Snapshot, type Round,
 } from "@quiz/shared";
@@ -296,6 +296,15 @@ export class LiveSession {
         for (const [teamId, pts] of Object.entries(points)) {
           const a = s.answers[answerKey(teamId, q.id)];
           if (a) a.points = pts;
+        }
+      }
+
+      if (round.answerFormat === "order") {
+        for (const t of s.teams) {
+          const a = s.answers[answerKey(t.id, q.id)];
+          if (!a) continue;
+          const { correct, total } = scoreOrder(a.value, q);
+          a.points = total === 0 ? 0 : Math.round((correct / total) * cap);
         }
       }
 
