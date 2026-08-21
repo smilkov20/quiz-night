@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { C, FONT_DISPLAY } from "./ui/theme";
 import { Btn, Eyebrow } from "./ui/kit";
+import { apiFetch } from "./useQuizSocket";
 import { TeamSurface } from "./surfaces/Team";
 import { PresenterSurface } from "./surfaces/Presenter";
 import { HostSurface } from "./surfaces/Host";
@@ -52,6 +53,25 @@ function HostRoutes() {
 
 function PasswordGate({ onKey }: { onKey: (key: string) => void }) {
   const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  /* Check it now, not at the first real request. Accepting anything and
+     failing later left a wrong password cached with no way back to this
+     screen. */
+  const submit = async () => {
+    if (!value || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await apiFetch("/api/auth", { method: "POST" }, value.trim());
+      onKey(value.trim());
+    } catch {
+      setErr("That password wasn't accepted.");
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6" style={{ background: C.page, color: C.ink }}>
       <div className="w-full max-w-sm">
@@ -60,11 +80,15 @@ function PasswordGate({ onKey }: { onKey: (key: string) => void }) {
         </div>
         <Eyebrow>Password</Eyebrow>
         <input type="password" value={value} autoFocus
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && value) onKey(value); }}
-          className="w-full rounded-lg border px-3 py-3 mb-4 text-lg"
-          style={{ background: C.card, borderColor: C.rule, color: C.ink }} />
-        <Btn tone="primary" wide onClick={() => value && onKey(value)}>Sign in</Btn>
+          onChange={(e) => { setValue(e.target.value); setErr(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+          className="w-full rounded-lg border px-3 py-3 mb-2 text-lg"
+          style={{ background: C.card, borderColor: err ? C.marker : C.rule, color: C.ink }} />
+        {err && <p className="mb-2 text-sm" style={{ color: C.marker }}>{err}</p>}
+        <div className="mb-4" />
+        <Btn tone="primary" wide onClick={() => void submit()} disabled={busy || !value}>
+          {busy ? "Checking…" : "Sign in"}
+        </Btn>
         <p className="mt-4 text-xs" style={{ color: C.inkDim }}>
           Set with <code>wrangler secret put HOST_PASSWORD</code>.
         </p>

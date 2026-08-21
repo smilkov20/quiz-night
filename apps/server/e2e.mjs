@@ -5,7 +5,7 @@ const KEY = "test-password";
 const post = async (p, body, auth) => {
   const r = await fetch(API + p, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${KEY}` } : {}) },
+    headers: { "Content-Type": "application/json", ...(auth ? { Authorization: `Bearer ${auth}` } : {}) },
     body: JSON.stringify(body),
   });
   const j = await r.json();
@@ -40,7 +40,7 @@ let rejected = false;
 try { await post("/api/sessions", { quiz }, false); } catch { rejected = true; }
 assert(rejected, "unauthenticated room creation is rejected");
 
-const { joinCode, presenterToken } = await post("/api/sessions", { quiz }, true);
+const { joinCode, presenterToken } = await post("/api/sessions", { quiz }, KEY);
 assert(/^[A-Z0-9]{5}$/.test(joinCode), `room opened with code ${joinCode}`);
 
 const a = await post("/api/join", { code: joinCode, name: "Team A" });
@@ -169,6 +169,21 @@ assert(last(mHost).session.phase === "answering",
 /* Teams arriving during round one is normal in a pub. */
 const late = await post("/api/join", { code: m.joinCode, name: "Latecomers" });
 assert(!late.error && late.teamId, "a team can still join after the quiz has started");
+
+/* The sign-in screen checks the password up front now, so these two must
+   behave predictably. */
+const rejects = async (p, body, auth) => {
+  try { await post(p, body, auth); return false; } catch { return true; }
+};
+assert(!(await rejects("/api/auth", {}, KEY)), "correct password accepted by /api/auth");
+assert(await rejects("/api/auth", {}, "definitely-wrong"), "wrong password rejected by /api/auth");
+/* Whitespace padding is handled at both ends: HTTP trims header values, and
+   the server trims HOST_PASSWORD, since env vars pasted into a dashboard
+   often carry a trailing newline. Run the server with a padded password and
+   this still passes. */
+assert(!(await rejects("/api/auth", {}, `  ${KEY}  `)), "surrounding whitespace tolerated");
+assert(await rejects("/api/sessions", { quiz }, "definitely-wrong"),
+  "wrong password cannot open a room");
 
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wsB].forEach(w => w.close());

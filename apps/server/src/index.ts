@@ -8,7 +8,11 @@ import { CLOSE_NO_ROOM, CLOSE_UNAUTHORISED } from "@quiz/shared";
 import { LiveSession } from "./session";
 
 const PORT = Number(process.env.PORT ?? 8787);
-const HOST_PASSWORD = process.env.HOST_PASSWORD ?? "";
+const RAW_HOST_PASSWORD = process.env.HOST_PASSWORD ?? "";
+const HOST_PASSWORD = RAW_HOST_PASSWORD.trim();
+if (RAW_HOST_PASSWORD !== HOST_PASSWORD) {
+  console.warn("HOST_PASSWORD had surrounding whitespace; using the trimmed value.");
+}
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "*").split(",").map((s) => s.trim());
 
 if (!HOST_PASSWORD) {
@@ -73,6 +77,14 @@ const server = createServer(async (req, res) => {
   // wake a sleeping instance before guests arrive.
   if (url.pathname === "/api/health") {
     return send(res, 200, { ok: true, rooms: rooms.size }, origin);
+  }
+
+  /* Lets the sign-in screen check the password up front. Without this the
+     first failure happens at "Open the room", long after the mistake. */
+  if (url.pathname === "/api/auth" && req.method === "POST") {
+    const auth = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (!checkPassword(auth)) return send(res, 403, { error: "Wrong password" }, origin);
+    return send(res, 200, { ok: true }, origin);
   }
 
   /* Open a room. The quiz travels in the request body because quiz content

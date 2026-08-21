@@ -3,7 +3,7 @@ import { Plus, Trash2, Check, AlertTriangle, Timer as TimerIcon, Play, Download,
 import type { Quiz, Question, Round, Tiebreaker } from "@quiz/shared";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Btn, Eyebrow, Panel, Pill } from "../ui/kit";
-import { apiFetch } from "../useQuizSocket";
+import { apiFetch, ApiError } from "../useQuizSocket";
 import { seedQuiz } from "../seed";
 import { parseYouTube, parseStamp, clipLen } from "../ui/YouTubeStage";
 import { roundIcon } from "./Host";
@@ -75,7 +75,14 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
         "/api/sessions", { method: "POST", body: JSON.stringify({ quiz }) }, hostKey
       );
       onOpenRoom(res.joinCode, res.presenterToken);
-    } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 403) {
+        sessionStorage.removeItem("quiz.host.key");
+        window.location.assign("/host");
+        return;
+      }
+      setErr((e as Error).message);
+    } finally { setSaving(false); }
   };
 
   if (err) return <Centered>{err}</Centered>;

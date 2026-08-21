@@ -127,6 +127,10 @@ export function useQuizSocket({ code, role, teamId, token, hostKey }: Options) {
 
 /* ---------- REST helpers ---------- */
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}, hostKey?: string): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     ...init,
@@ -138,7 +142,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}, hostKey?
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((body as { error?: string }).error ?? "Request failed");
+    throw new ApiError((body as { error?: string }).error ?? "Request failed", res.status);
   }
   return res.json() as Promise<T>;
 }
