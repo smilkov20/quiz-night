@@ -97,11 +97,23 @@ function JoinForm({ onJoined, notice }: { onJoined: (code: string, teamId: strin
 function Playing({ code, teamId, onForget }: { code: string; teamId: string; onForget: (msg?: string) => void }) {
   const { snapshot, status, fatal, answer, send, now } = useQuizSocket({ code, role: "team", teamId });
 
-  /* The room this phone remembers is gone — last week's quiz, or a restarted
-     server. Drop back to the join screen instead of retrying a dead code. */
+  /* The room this phone remembers is gone — last week's quiz, a closed room,
+     or a restarted server. Drop back to the join screen instead of retrying a
+     dead code. */
   useEffect(() => {
     if (fatal === "no-room") onForget("That quiz has ended. Enter the new code to join.");
   }, [fatal, onForget]);
+
+  /* Refreshing into an already-finished quiz shouldn't strand you on last
+     night's leaderboard. But if the quiz finishes while you're watching, the
+     final scores are the whole payoff — so only bail when the very first
+     snapshot of this page load is already "finished". */
+  const sawLive = useRef(false);
+  useEffect(() => {
+    if (!snapshot) return;
+    if (snapshot.session.state !== "finished") { sawLive.current = true; return; }
+    if (!sawLive.current) onForget("That quiz has finished. Enter a new code to join.");
+  }, [snapshot, onForget]);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 100);
@@ -200,15 +212,14 @@ function Playing({ code, teamId, onForget }: { code: string; teamId: string; onF
         );
       }
       return (
-        <>
-          <Eyebrow>Tiebreaker{tb?.mode === "closest" ? " · closest wins" : ""}</Eyebrow>
-          <p className="text-lg mb-4" style={{ fontWeight: 600 }}>{tb?.prompt}</p>
-          <input autoFocus placeholder={tb?.mode === "closest" ? "A number" : "Your answer"}
-            inputMode={tb?.mode === "closest" ? "numeric" : "text"}
-            onChange={(e) => send({ type: "tiebreak_answer", value: e.target.value })}
-            className="w-full rounded-lg border px-3 py-3 text-lg"
-            style={{ background: C.card, borderColor: C.rule, color: C.biro }} />
-        </>
+        // Keyed on the tiebreaker so moving to the next question remounts the
+        // field — otherwise React reuses the DOM node and the old answer stays.
+        <TiebreakPad
+          key={tb?.id ?? s.tiebreakIdx}
+          tb={tb}
+          initial={s.tiebreakAnswers[teamId] ?? ""}
+          onChange={(v) => send({ type: "tiebreak_answer", value: v })}
+        />
       );
     }
 
@@ -497,5 +508,29 @@ function SortPad({ question, value, canAnswer, onChange }: {
         ))}
       </div>
     </div>
+  );
+}
+
+
+function TiebreakPad({ tb, initial, onChange }: {
+  tb?: { id: string; prompt: string; mode: "exact" | "closest" };
+  initial: string;
+  onChange: (value: string) => void;
+}) {
+  // Local state so typing stays instant; seeded from the server so a refresh
+  // mid-tiebreaker restores what was already sent.
+  const [value, setValue] = useState(initial);
+  return (
+    <>
+      <Eyebrow>Tiebreaker{tb?.mode === "closest" ? " · closest wins" : ""}</Eyebrow>
+      <p className="text-lg mb-4" style={{ fontWeight: 600 }}>{tb?.prompt}</p>
+      <input
+        autoFocus value={value}
+        placeholder={tb?.mode === "closest" ? "A number" : "Your answer"}
+        inputMode={tb?.mode === "closest" ? "numeric" : "text"}
+        onChange={(e) => { setValue(e.target.value); onChange(e.target.value); }}
+        className="w-full rounded-lg border px-3 py-3 text-lg"
+        style={{ background: C.card, borderColor: C.rule, color: C.biro }} />
+    </>
   );
 }

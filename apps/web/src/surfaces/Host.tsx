@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Play, RotateCcw, Lock, Unlock, ChevronRight, ChevronLeft, Users, Trophy,
   ClipboardCheck, Eye, Flag, Trash2, AlertTriangle, Check, Timer as TimerIcon,
-  Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy, Coffee,
+  Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy, Coffee, Power,
 } from "lucide-react";
 import {
   answerKey, maxPointsOf, normalise, scoreSort, type Round, type Snapshot,
 } from "@quiz/shared";
 import { C, FONT_DATA, FONT_DISPLAY } from "../ui/theme";
-import { Btn, Countdown, Eyebrow, Leaderboard, Panel, Pill, useToasts } from "../ui/kit";
+import { Btn, Countdown, Eyebrow, Leaderboard, Panel, Pill, useToasts, useConfirm } from "../ui/kit";
 import { useQuizSocket } from "../useQuizSocket";
 import { YouTubeStage, clipLen, parseYouTube } from "../ui/YouTubeStage";
 
@@ -24,6 +24,19 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
   const { snapshot, status, fatal, host, now } = useQuizSocket({ code, role: "host", hostKey });
   const [grading, setGrading] = useState(false);
   const { push, toasts } = useToasts();
+  const { confirm, dialog } = useConfirm();
+
+  /* Ends the session for everyone: phones and the projector are disconnected
+     and shown the join screen, rather than sitting on a stale leaderboard. */
+  const closeRoom = async () => {
+    const ok = await confirm({
+      title: "Close the room?",
+      body: "Every phone and the big screen will be disconnected and asked to join a new quiz. Scores are not kept.",
+      confirmLabel: "Close the room",
+      destructive: true,
+    });
+    if (ok) host({ action: "close_room" });
+  };
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 100);
@@ -271,6 +284,11 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
               <div className="flex flex-wrap gap-2 mt-4">
                 <Btn onClick={() => setGrading(true)}><ClipboardCheck size={14} /> Mark answers</Btn>
                 <BreakButton onBreak={(m) => host({ action: "start_break", minutes: m })} />
+                {s.state === "finished" && (
+                  <Btn tone="danger" onClick={() => void closeRoom()}>
+                    <Power size={14} /> Close the room
+                  </Btn>
+                )}
                 {canTiebreak && (
                   <Btn tone="danger" onClick={() => host({ action: "run_tiebreaker" })}>
                     <Flag size={14} /> Run tiebreaker
@@ -357,6 +375,7 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
       </div>
 
       {grading && <Grading snapshot={snapshot} onClose={() => setGrading(false)} onAward={host} />}
+      {dialog}
       {toasts}
     </div>
   );

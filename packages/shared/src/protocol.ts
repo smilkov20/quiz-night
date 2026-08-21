@@ -21,6 +21,9 @@ export const HostActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("extend_break"), minutes: z.number().int().min(1).max(60) }),
   z.object({ action: z.literal("end_break") }),
   z.object({ action: z.literal("finish") }),
+  /* Ends the session outright: every device is disconnected and sent back to
+     the join screen. Distinct from "finish", which shows the final scores. */
+  z.object({ action: z.literal("close_room") }),
   z.object({ action: z.literal("run_tiebreaker") }),
   z.object({ action: z.literal("next_tiebreaker") }),
   z.object({ action: z.literal("resolve_tiebreak"), teamId: z.string() }),

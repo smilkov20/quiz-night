@@ -97,6 +97,7 @@ const server = createServer(async (req, res) => {
       if (!quiz?.rounds?.length) return send(res, 400, { error: "Quiz has no rounds" }, origin);
       const code = newCode();
       const room = new LiveSession(quiz, code);
+      room.onClosed = () => { rooms.delete(code); console.log(`[room] closed ${code}`); };
       rooms.set(code, room);
       console.log(`[room] opened ${code} — "${quiz.title}"`);
       return send(res, 200, { joinCode: code, presenterToken: room.session.presenterToken }, origin);

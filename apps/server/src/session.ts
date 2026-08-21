@@ -1,6 +1,6 @@
 import type { WebSocket } from "ws";
 import {
-  ClientMessageSchema, makeToken, LATE_SUBMIT_GRACE_MS,
+  ClientMessageSchema, makeToken, LATE_SUBMIT_GRACE_MS, CLOSE_NO_ROOM,
   answerKey, computeStandings, countUngraded, maxPointsOf, normalise, tiedForFirst,
   scoreFastest, scoreSort,
   type ConnectionRole, type HostAction, type Quiz, type ServerMessage,
@@ -22,6 +22,10 @@ export class LiveSession {
   private tokens = new Map<string, string>();
   private lockTimer: NodeJS.Timeout | null = null;
   private mediaTimer: NodeJS.Timeout | null = null;
+
+  /** Called when the room closes itself, so the server can drop it from the
+      lookup table. */
+  onClosed?: () => void;
 
   constructor(quiz: Quiz, joinCode: string) {
     this.session = {
@@ -178,6 +182,15 @@ export class LiveSession {
         }
         break;
       case "finish": s.state = "finished"; break;
+      case "close_room":
+        // 4004 is the same code a vanished room sends, so every client already
+        // knows to forget its stored session and show the join screen.
+        for (const c of this.conns) {
+          try { c.ws.close(CLOSE_NO_ROOM, "room-closed"); } catch { /* already gone */ }
+        }
+        this.dispose();
+        this.onClosed?.();
+        return;
       case "run_tiebreaker": {
         const tied = tiedForFirst(s);
         if (tied.length < 2) break;

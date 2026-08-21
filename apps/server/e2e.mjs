@@ -275,6 +275,29 @@ sAct({ action: "lock" }); await wait(150);
 const sPts = last(sHost).session.answers[`${sTeam.teamId}:sq1`]?.points;
 assert(sPts === 3, `three of four filed correctly scores 3 of 4 (got ${sPts})`);
 
+/* Moving to the next tiebreaker must wipe the previous answers, or a team's
+   first guess silently counts as their second. */
+const tHost = fHost;
+const tAct = (payload) => tHost.send(JSON.stringify({ type: "host", payload }));
+socks[0].send(JSON.stringify({ type: "tiebreak_answer", value: "ignored" }));
+await wait(80);
+tAct({ action: "next_tiebreaker" }); await wait(80);
+assert(Object.keys(last(tHost).session.tiebreakAnswers).length === 0,
+  "moving to the next tiebreaker clears the previous answers");
+
+/* Closing the room must disconnect everyone with the same code a vanished
+   room uses, so every client already knows to forget its session. */
+const closed = new Promise((resolve) => socks[0].on("close", (c) => resolve(c)));
+tAct({ action: "close_room" });
+assert((await closed) === 4004, "closing the room disconnects teams with 4004");
+await wait(120);
+const gone = await new Promise((resolve) => {
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws?code=${f.joinCode}&role=team&teamId=x`);
+  ws.on("close", (c) => resolve(c));
+  ws.on("error", () => resolve(-1));
+});
+assert(gone === 4004, "a closed room can no longer be rejoined");
+
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wsB].forEach(w => w.close());
 process.exit(0);
