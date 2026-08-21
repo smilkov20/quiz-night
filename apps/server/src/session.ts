@@ -27,6 +27,7 @@ export class LiveSession {
       id: makeToken(8), joinCode, presenterToken: makeToken(), quiz,
       state: "lobby", roundIdx: 0, questionIdx: 0, phase: "idle",
       questionStartedAt: null, mediaStartedAt: null, reviewRound: null,
+      breakEndsAt: null, breakStartedAt: null, breakReturn: null,
       teams: [], answers: {}, tiebreakIdx: 0, tiebreakTeams: [], tiebreakAnswers: {},
       winnerTeamId: null, createdAt: Date.now(),
     };
@@ -153,6 +154,28 @@ export class LiveSession {
         break;
       case "show_review": s.state = "round_review"; s.reviewRound = s.roundIdx; break;
       case "show_leaderboard": s.state = "leaderboard"; break;
+      case "start_break":
+        /* The break is host-ended, never self-ending: the clock reaching zero
+           doesn't mean the marking is done. */
+        if (s.state !== "break") s.breakReturn = s.state;
+        s.state = "break";
+        s.breakStartedAt = Date.now();
+        s.breakEndsAt = Date.now() + a.minutes * 60_000;
+        break;
+      case "extend_break":
+        if (s.state === "break") {
+          const from = Math.max(s.breakEndsAt ?? Date.now(), Date.now());
+          s.breakEndsAt = from + a.minutes * 60_000;
+        }
+        break;
+      case "end_break":
+        if (s.state === "break") {
+          s.state = s.breakReturn ?? "round_review";
+          s.breakReturn = null;
+          s.breakEndsAt = null;
+          s.breakStartedAt = null;
+        }
+        break;
       case "finish": s.state = "finished"; break;
       case "run_tiebreaker": {
         const tied = tiedForFirst(s);

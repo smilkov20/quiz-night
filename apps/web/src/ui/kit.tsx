@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { C, FONT_BODY, FONT_DISPLAY, fmtClock } from "./theme";
 
 type Tone = "primary" | "danger" | "quiet" | "solid";
@@ -123,4 +123,129 @@ export function Leaderboard({ standings }: { standings: { teamId: string; name: 
       ))}
     </ol>
   );
+}
+
+/* ---------------------------------------------------------------
+   Confirm dialog. Replaces window.confirm, which can't be styled and
+   looks like a browser warning rather than part of the app.
+---------------------------------------------------------------- */
+interface ConfirmOpts {
+  title: string;
+  body?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+}
+
+export function useConfirm() {
+  const [opts, setOpts] = useState<ConfirmOpts | null>(null);
+  const resolver = useRef<((ok: boolean) => void) | null>(null);
+
+  const confirm = useCallback((o: ConfirmOpts) => {
+    setOpts(o);
+    return new Promise<boolean>((resolve) => { resolver.current = resolve; });
+  }, []);
+
+  const settle = useCallback((ok: boolean) => {
+    setOpts(null);
+    resolver.current?.(ok);
+    resolver.current = null;
+  }, []);
+
+  const dialog = opts ? <ConfirmDialog opts={opts} onSettle={settle} /> : null;
+  return { confirm, dialog };
+}
+
+function ConfirmDialog({ opts, onSettle }: { opts: ConfirmOpts; onSettle: (ok: boolean) => void }) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    // Focus Cancel, not Confirm — a stray Enter shouldn't delete anything.
+    cancelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onSettle(false);
+      if (e.key === "Enter" && e.target === cancelRef.current) onSettle(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onSettle]);
+
+  return (
+    <div
+      role="dialog" aria-modal="true" aria-label={opts.title}
+      onClick={(e) => { if (e.target === e.currentTarget) onSettle(false); }}
+      className="fixed inset-0 z-[60] flex items-center justify-center p-5"
+      style={{ background: "rgba(21,35,79,0.34)", backdropFilter: "blur(5px)", WebkitBackdropFilter: "blur(5px)" }}
+    >
+      <div className="w-full max-w-sm rounded-2xl border p-5"
+        style={{
+          background: C.card, borderColor: C.rule, color: C.ink,
+          boxShadow: "0 18px 48px rgba(21,35,79,0.22)",
+        }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, lineHeight: 1.15, letterSpacing: "-0.02em" }}>
+          {opts.title}
+        </div>
+        {opts.body && (
+          <p className="mt-2 text-sm" style={{ color: C.inkDim, lineHeight: 1.5 }}>{opts.body}</p>
+        )}
+        <div className="mt-5 flex gap-2 justify-end">
+          <button ref={cancelRef} onClick={() => onSettle(false)}
+            className="rounded-md border px-3 py-2 text-sm"
+            style={{ borderColor: C.rule, color: C.ink, fontWeight: 600 }}>
+            {opts.cancelLabel ?? "Cancel"}
+          </button>
+          <button onClick={() => onSettle(true)}
+            className="rounded-md px-3 py-2 text-sm"
+            style={{
+              background: opts.destructive ? C.marker : C.biro,
+              color: C.onInk, fontWeight: 600,
+            }}>
+            {opts.confirmLabel ?? "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   Toasts. Used on the host console for things that happen without the
+   host doing anything — a timer expiring, a round filling up.
+---------------------------------------------------------------- */
+export interface Toast { id: number; title: string; body?: string; tone?: "info" | "alert" }
+
+export function useToasts(ttl = 6000) {
+  const [items, setItems] = useState<Toast[]>([]);
+  const seq = useRef(0);
+
+  const push = useCallback((t: Omit<Toast, "id">) => {
+    const id = ++seq.current;
+    setItems((prev) => [...prev, { ...t, id }]);
+    setTimeout(() => setItems((prev) => prev.filter((x) => x.id !== id)), ttl);
+  }, [ttl]);
+
+  const dismiss = useCallback((id: number) => {
+    setItems((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
+  const toasts = (
+    <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2" style={{ maxWidth: 340 }}>
+      {items.map((t) => (
+        <button key={t.id} onClick={() => dismiss(t.id)}
+          className="text-left rounded-lg border px-3 py-2.5"
+          style={{
+            background: C.card,
+            borderColor: t.tone === "alert" ? C.marker : C.biro,
+            borderLeftWidth: 4,
+            boxShadow: "0 8px 24px rgba(21,35,79,0.16)",
+            color: C.ink,
+          }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{t.title}</div>
+          {t.body && <div className="text-sm" style={{ color: C.inkDim }}>{t.body}</div>}
+        </button>
+      ))}
+    </div>
+  );
+
+  return { push, toasts };
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2, Check, AlertTriangle, Timer as TimerIcon, Play, Download, Upload, ChevronUp, ChevronDown } from "lucide-react";
 import type { Quiz, Question, Round, Tiebreaker } from "@quiz/shared";
 import { C, FONT_DISPLAY } from "../ui/theme";
-import { Btn, Eyebrow, Panel, Pill } from "../ui/kit";
+import { Btn, Eyebrow, Panel, Pill, useConfirm } from "../ui/kit";
 import { apiFetch, ApiError } from "../useQuizSocket";
 import { seedQuiz } from "../seed";
 import { parseYouTube, parseStamp, clipLen } from "../ui/YouTubeStage";
@@ -23,6 +23,7 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   useEffect(() => {
     const stored = localStorage.getItem(STORE);
@@ -113,6 +114,19 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
       }),
     });
 
+  const delQuestionConfirmed = async (rid: string, qid: string) => {
+    const round = quiz.rounds.find((r) => r.id === rid);
+    const q = round?.questions.find((x) => x.id === qid);
+    const label = q?.prompt?.trim();
+    const ok = await confirm({
+      title: "Delete this question?",
+      body: label ? `"${label.length > 90 ? label.slice(0, 90) + "…" : label}"` : "This question is still empty.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (ok) delQuestion(rid, qid);
+  };
+
   const delQuestion = (rid: string, qid: string) =>
     setQuiz({
       ...quiz,
@@ -131,8 +145,14 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
       }],
     });
 
-  const delTiebreaker = (id: string) =>
-    setQuiz({ ...quiz, tiebreakers: quiz.tiebreakers.filter((t) => t.id !== id) });
+  const delTiebreaker = async (id: string) => {
+    const ok = await confirm({
+      title: "Delete this tiebreaker?",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (ok) setQuiz({ ...quiz, tiebreakers: reindex(quiz.tiebreakers.filter((t) => t.id !== id)) });
+  };
 
   /* `order` is decorative — the server reads array position — but keeping it
      in step avoids nasty surprises if anything ever sorts by it. */
@@ -152,13 +172,19 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
     if (next) setQuiz({ ...quiz, rounds: reindex(next) });
   };
 
-  const delRound = (id: string) => {
+  const delRound = async (id: string) => {
     const r = quiz.rounds.find((x) => x.id === id);
     if (!r) return;
-    // Losing six questions to a mis-tap would be miserable.
-    if (r.questions.length > 0 &&
-        !window.confirm(`Delete "${r.title || "this round"}" and its ${r.questions.length} question${r.questions.length === 1 ? "" : "s"}?`)) return;
-    setQuiz({ ...quiz, rounds: reindex(quiz.rounds.filter((x) => x.id !== id)) });
+    const n = r.questions.length;
+    const ok = await confirm({
+      title: `Delete "${r.title || "this round"}"?`,
+      body: n > 0
+        ? `Its ${n} question${n === 1 ? "" : "s"} will go with it. This can't be undone.`
+        : "This round is empty.",
+      confirmLabel: "Delete round",
+      destructive: true,
+    });
+    if (ok) setQuiz({ ...quiz, rounds: reindex(quiz.rounds.filter((x) => x.id !== id)) });
   };
 
   const moveQuestion = (rid: string, qid: string, dir: -1 | 1) =>
@@ -189,6 +215,7 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
 
   return (
     <div className="min-h-screen p-3 sm:p-5" style={{ background: C.page, color: C.ink }}>
+      {dialog}
       <div className="max-w-4xl mx-auto flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, letterSpacing: "-0.02em" }}>Quiz editor</div>
@@ -235,7 +262,7 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                 <button onClick={() => setOpen(open === r.id ? null : r.id)} className="text-xs px-1" style={{ color: C.inkDim }}>
                   {open === r.id ? "Collapse" : "Edit"}
                 </button>
-                <IconBtn label="Delete round" onClick={() => delRound(r.id)}>
+                <IconBtn label="Delete round" onClick={() => void delRound(r.id)}>
                   <Trash2 size={14} />
                 </IconBtn>
               </div>
@@ -341,7 +368,7 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                           <IconBtn label="Move question down" disabled={qi === r.questions.length - 1} onClick={() => moveQuestion(r.id, q.id, 1)}>
                             <ChevronDown size={14} />
                           </IconBtn>
-                          <IconBtn label="Delete question" onClick={() => delQuestion(r.id, q.id)}>
+                          <IconBtn label="Delete question" onClick={() => void delQuestionConfirmed(r.id, q.id)}>
                             <Trash2 size={14} />
                           </IconBtn>
                         </div>
@@ -395,7 +422,7 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                     <IconBtn label="Move down" disabled={ti === quiz.tiebreakers.length - 1} onClick={() => moveTiebreaker(t.id, 1)}>
                       <ChevronDown size={14} />
                     </IconBtn>
-                    <IconBtn label="Delete tiebreaker" onClick={() => delTiebreaker(t.id)}>
+                    <IconBtn label="Delete tiebreaker" onClick={() => void delTiebreaker(t.id)}>
                       <Trash2 size={14} />
                     </IconBtn>
                   </div>

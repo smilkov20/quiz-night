@@ -185,6 +185,27 @@ assert(!(await rejects("/api/auth", {}, `  ${KEY}  `)), "surrounding whitespace 
 assert(await rejects("/api/sessions", { quiz }, "definitely-wrong"),
   "wrong password cannot open a room");
 
+/* A break must be host-ended, and must return to wherever it interrupted —
+   the clock hitting zero doesn't mean the marking is finished. */
+const bAct = (payload) => mHost.send(JSON.stringify({ type: "host", payload }));
+bAct({ action: "lock" }); await wait(60);
+bAct({ action: "next_question" }); await wait(60);
+const before = last(mHost).session.state;
+bAct({ action: "start_break", minutes: 1 }); await wait(80);
+const inBreak = last(mHost).session;
+assert(inBreak.state === "break", "host can start a break");
+assert(inBreak.breakEndsAt > Date.now(), "break has an end time clients can count down to");
+assert(inBreak.breakStartedAt != null, "break records its start, so the ring is proportional");
+
+const endsAt = inBreak.breakEndsAt;
+bAct({ action: "extend_break", minutes: 5 }); await wait(80);
+assert(last(mHost).session.breakEndsAt > endsAt, "break can be extended");
+
+bAct({ action: "end_break" }); await wait(80);
+assert(last(mHost).session.state === before,
+  `ending a break returns to where it interrupted (${before})`);
+assert(last(mHost).session.breakEndsAt === null, "break clock is cleared on resume");
+
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wsB].forEach(w => w.close());
 process.exit(0);

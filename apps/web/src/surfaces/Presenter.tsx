@@ -90,6 +90,26 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
           </>
         )}
 
+        {s.state === "break" && (
+          <>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: "clamp(40px,9vw,110px)", lineHeight: 1, letterSpacing: "-0.02em" }}>
+              <span style={{ background: C.high, padding: "0.02em 0.18em" }}>Break</span>
+            </div>
+            <div className="mt-10 flex justify-center">
+              <Countdown
+                remaining={s.breakEndsAt ? (s.breakEndsAt - now()) / 1000 : 0}
+                total={Math.max(1, ((s.breakEndsAt ?? 0) - (s.breakStartedAt ?? 0)) / 1000)}
+                size="lg"
+              />
+            </div>
+            <p className="mt-8 text-lg" style={{ color: C.inkDim }}>
+              {s.breakEndsAt && s.breakEndsAt - now() <= 0
+                ? "Back in a moment"
+                : "Get a drink. Scores are being totted up."}
+            </p>
+          </>
+        )}
+
         {s.state === "round_review" && s.reviewRound != null && (
           <>
             <div className="text-sm uppercase mb-2" style={{ color: C.biro, letterSpacing: "0.28em", fontWeight: 700 }}>

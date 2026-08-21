@@ -137,6 +137,25 @@ function Playing({ code, teamId, onForget }: { code: string; teamId: string; onF
         </div>
       );
 
+    if (s.state === "break") {
+      const left = s.breakEndsAt ? (s.breakEndsAt - now()) / 1000 : 0;
+      return (
+        <div className="text-center py-10">
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, letterSpacing: "-0.02em" }}>Break</div>
+          <div className="my-6 flex justify-center">
+            <Countdown
+              remaining={left}
+              total={Math.max(1, ((s.breakEndsAt ?? 0) - (s.breakStartedAt ?? 0)) / 1000)}
+              size="md"
+            />
+          </div>
+          <p className="text-sm" style={{ color: C.inkDim }}>
+            {left <= 0 ? "Starting again shortly." : "Keep this page open — you'll be back in automatically."}
+          </p>
+        </div>
+      );
+    }
+
     if (s.state === "round_review" && s.reviewRound != null) {
       const r = s.quiz.rounds[s.reviewRound];
       return (

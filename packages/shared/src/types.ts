@@ -72,6 +72,7 @@ export type SessionState =
   | "in_round"
   | "round_review"
   | "leaderboard"
+  | "break"
   | "tiebreaker"
   | "finished";
 
@@ -95,6 +96,12 @@ export interface Session {
   questionStartedAt: number | null;
   mediaStartedAt: number | null;
   reviewRound: number | null;
+  /** Epoch ms. Like every other clock here, clients derive the countdown
+      rather than being sent ticks. */
+  breakEndsAt: number | null;
+  breakStartedAt: number | null;
+  /** Where to go back to when the break ends. */
+  breakReturn: SessionState | null;
   teams: Team[];
   /** keyed `${teamId}:${questionId}` */
   answers: Record<string, Answer>;

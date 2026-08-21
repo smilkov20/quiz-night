@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Play, RotateCcw, Lock, Unlock, ChevronRight, ChevronLeft, Users, Trophy,
   ClipboardCheck, Eye, Flag, Trash2, AlertTriangle, Check, Timer as TimerIcon,
-  Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy,
+  Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy, Coffee,
 } from "lucide-react";
 import {
   answerKey, maxPointsOf, normalise, type Round, type Snapshot,
 } from "@quiz/shared";
 import { C, FONT_DATA, FONT_DISPLAY } from "../ui/theme";
-import { Btn, Countdown, Eyebrow, Leaderboard, Panel, Pill } from "../ui/kit";
+import { Btn, Countdown, Eyebrow, Leaderboard, Panel, Pill, useToasts } from "../ui/kit";
 import { useQuizSocket } from "../useQuizSocket";
 import { YouTubeStage, clipLen, parseYouTube } from "../ui/YouTubeStage";
 
@@ -23,11 +23,39 @@ export const roundIcon = (r: Round) => {
 export function HostSurface({ code, hostKey }: { code: string; hostKey: string }) {
   const { snapshot, status, fatal, host, now } = useQuizSocket({ code, role: "host", hostKey });
   const [grading, setGrading] = useState(false);
+  const { push, toasts } = useToasts();
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 100);
     return () => clearInterval(id);
   }, []);
+
+  const prevPhase = useRef<string | null>(null);
+  const notifiedAllIn = useRef<string | null>(null);
+  useEffect(() => {
+    const s = snapshot?.session;
+    if (!s) return;
+    const round = s.quiz.rounds[s.roundIdx];
+    const q = round?.questions[s.questionIdx];
+
+    if (prevPhase.current === "answering" && s.phase === "locked" && q) {
+      const more = s.questionIdx + 1 < (round?.questions.length ?? 0);
+      push({
+        title: "Time's up — answers locked",
+        body: more ? "Read out the answer, then hit Next question." : "That's the round. Reveal the answers when you're ready.",
+        tone: "alert",
+      });
+    }
+
+    if (s.phase === "answering" && q && s.teams.length > 0) {
+      const answered = s.teams.filter((t) => s.answers[answerKey(t.id, q.id)]).length;
+      if (answered === s.teams.length && notifiedAllIn.current !== q.id) {
+        notifiedAllIn.current = q.id;
+        push({ title: "All teams have answered", body: "You can lock early rather than wait out the clock." });
+      }
+    }
+    prevPhase.current = s.phase;
+  }, [snapshot?.session.phase, snapshot?.session.answers, push]);
 
   if (fatal) {
     return (
@@ -179,6 +207,34 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
             </Panel>
           )}
 
+          {s.state === "break" && (
+            <Panel title="Break">
+              <div className="flex flex-col sm:flex-row items-center gap-5">
+                <Countdown
+                  remaining={s.breakEndsAt ? (s.breakEndsAt - now()) / 1000 : 0}
+                  total={Math.max(1, ((s.breakEndsAt ?? 0) - (s.breakStartedAt ?? 0)) / 1000)}
+                  size="md"
+                />
+                <div className="flex-1 w-full">
+                  <p className="text-sm mb-3" style={{ color: C.inkDim }}>
+                    Teams and the big screen are showing the countdown. Mark answers now —
+                    the break won't end on its own.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Btn onClick={() => setGrading(true)}>
+                      <ClipboardCheck size={14} /> Mark answers
+                      {snapshot.ungradedCount > 0 && <span style={{ color: C.marker }}>({snapshot.ungradedCount})</span>}
+                    </Btn>
+                    <Btn onClick={() => host({ action: "extend_break", minutes: 5 })}>+5 min</Btn>
+                    <Btn tone="primary" onClick={() => host({ action: "end_break" })}>
+                      Back to the quiz <ChevronRight size={14} />
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            </Panel>
+          )}
+
           {s.state === "round_review" && (
             <Panel title="Round finished">
               <p className="text-sm mb-4" style={{ color: C.inkDim }}>
@@ -191,6 +247,7 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                   {snapshot.ungradedCount > 0 && <span style={{ color: C.marker }}>({snapshot.ungradedCount})</span>}
                 </Btn>
                 <Btn onClick={() => host({ action: "show_leaderboard" })}><Trophy size={14} /> Show leaderboard</Btn>
+                <BreakButton onBreak={(m) => host({ action: "start_break", minutes: m })} />
                 <Btn tone="primary" onClick={() => host({ action: "next_round" })}>
                   {s.roundIdx + 1 < s.quiz.rounds.length ? "Next round" : "Finish quiz"} <ChevronRight size={14} />
                 </Btn>
@@ -213,6 +270,7 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
               <Leaderboard standings={snapshot.standings} />
               <div className="flex flex-wrap gap-2 mt-4">
                 <Btn onClick={() => setGrading(true)}><ClipboardCheck size={14} /> Mark answers</Btn>
+                <BreakButton onBreak={(m) => host({ action: "start_break", minutes: m })} />
                 {canTiebreak && (
                   <Btn tone="danger" onClick={() => host({ action: "run_tiebreaker" })}>
                     <Flag size={14} /> Run tiebreaker
@@ -299,7 +357,25 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
       </div>
 
       {grading && <Grading snapshot={snapshot} onClose={() => setGrading(false)} onAward={host} />}
+      {toasts}
     </div>
+  );
+}
+
+/** Three durations rather than a free-text field — you're standing in front
+    of a room, not filling in a form. */
+function BreakButton({ onBreak }: { onBreak: (minutes: number) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return <Btn onClick={() => setOpen(true)}><Coffee size={14} /> Take a break</Btn>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      {[5, 10, 15].map((m) => (
+        <Btn key={m} small tone="primary" onClick={() => { onBreak(m); setOpen(false); }}>{m} min</Btn>
+      ))}
+      <Btn small onClick={() => setOpen(false)}>Cancel</Btn>
+    </span>
   );
 }
 
