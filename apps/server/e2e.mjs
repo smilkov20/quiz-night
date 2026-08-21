@@ -206,6 +206,75 @@ assert(last(mHost).session.state === before,
   `ending a break returns to where it interrupted (${before})`);
 assert(last(mHost).session.breakEndsAt === null, "break clock is cleared on resume");
 
+/* Your example: answer 39, three teams say 38, the quickest of them takes 2
+   and the other two take 1. */
+const fastQuiz = JSON.parse(JSON.stringify(quiz));
+fastQuiz.rounds = [{
+  id: "f1", order: 0, title: "Fastest", answerFormat: "fastest", mediaType: "none",
+  timeLimit: 30, defaultMaxPoints: 1, fastestPoints: 2,
+  questions: [{ id: "fq1", order: 0, prompt: "How many?", correct: "39", accepted: [],
+                maxPoints: null, fastestMode: "closest", mediaSource: "none" }],
+}];
+const f = await post("/api/sessions", { quiz: fastQuiz }, KEY);
+const fHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${f.joinCode}&role=host&key=${KEY}`);
+const names = ["Quick", "Middle", "Slow", "Wrong"];
+const joined = [];
+for (const n of names) joined.push(await post("/api/join", { code: f.joinCode, name: n }));
+const socks = [];
+for (const j of joined) socks.push(await open(`ws://127.0.0.1:${PORT}/ws?code=${f.joinCode}&role=team&teamId=${j.teamId}`));
+await wait(120);
+const fAct = (payload) => fHost.send(JSON.stringify({ type: "host", payload }));
+fAct({ action: "begin_round" }); await wait(60);
+fAct({ action: "reveal_question" }); await wait(60);
+fAct({ action: "start_timer" }); await wait(60);
+
+// Three teams answer 38, spaced out; the fourth is miles off.
+socks[0].send(JSON.stringify({ type: "answer", questionId: "fq1", value: "38" })); await wait(120);
+socks[1].send(JSON.stringify({ type: "answer", questionId: "fq1", value: "38" })); await wait(120);
+socks[2].send(JSON.stringify({ type: "answer", questionId: "fq1", value: "38" })); await wait(120);
+socks[3].send(JSON.stringify({ type: "answer", questionId: "fq1", value: "900" })); await wait(120);
+
+// A speed round must refuse a second answer, or "first" means nothing.
+socks[2].send(JSON.stringify({ type: "answer", questionId: "fq1", value: "39" })); await wait(120);
+
+fAct({ action: "lock" }); await wait(150);
+const fs = last(fHost).session;
+const ptsOf = (i) => fs.answers[`${joined[i].teamId}:fq1`]?.points;
+assert(fs.answers[`${joined[2].teamId}:fq1`].value === "38", "a second answer is refused in a speed round");
+assert(ptsOf(0) === 2, `fastest correct answer takes the bonus (got ${ptsOf(0)})`);
+assert(ptsOf(1) === 1 && ptsOf(2) === 1, `equally-correct but slower teams take the base points (${ptsOf(1)}, ${ptsOf(2)})`);
+assert(ptsOf(3) === 0, `a wrong answer scores nothing (got ${ptsOf(3)})`);
+
+/* Sorting is marked per word, automatically. */
+const sortQuiz = JSON.parse(JSON.stringify(quiz));
+sortQuiz.rounds = [{
+  id: "s1", order: 0, title: "Sort", answerFormat: "sort", mediaType: "none",
+  timeLimit: 30, defaultMaxPoints: 4,
+  questions: [{ id: "sq1", order: 0, prompt: "File these", correct: "", accepted: [],
+                maxPoints: 4, mediaSource: "none",
+                categories: ["Fruit", "Veg"],
+                items: [
+                  { word: "Apple", category: "Fruit" }, { word: "Pear", category: "Fruit" },
+                  { word: "Leek", category: "Veg" }, { word: "Kale", category: "Veg" },
+                ] }],
+}];
+const so = await post("/api/sessions", { quiz: sortQuiz }, KEY);
+const sHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${so.joinCode}&role=host&key=${KEY}`);
+const sTeam = await post("/api/join", { code: so.joinCode, name: "Sorters" });
+const sSock = await open(`ws://127.0.0.1:${PORT}/ws?code=${so.joinCode}&role=team&teamId=${sTeam.teamId}`);
+await wait(120);
+const sAct = (payload) => sHost.send(JSON.stringify({ type: "host", payload }));
+sAct({ action: "begin_round" }); await wait(60);
+sAct({ action: "reveal_question" }); await wait(60);
+sAct({ action: "start_timer" }); await wait(60);
+sSock.send(JSON.stringify({
+  type: "answer", questionId: "sq1",
+  value: JSON.stringify({ Apple: "Fruit", Pear: "Fruit", Leek: "Veg", Kale: "Fruit" }),
+})); await wait(150);
+sAct({ action: "lock" }); await wait(150);
+const sPts = last(sHost).session.answers[`${sTeam.teamId}:sq1`]?.points;
+assert(sPts === 3, `three of four filed correctly scores 3 of 4 (got ${sPts})`);
+
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wsB].forEach(w => w.close());
 process.exit(0);

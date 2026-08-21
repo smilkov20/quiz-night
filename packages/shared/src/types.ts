@@ -2,7 +2,13 @@
    Teams and answers belong to the Session, so the same quiz can be run twice
    without mutating the question bank. */
 
-export type AnswerFormat = "yes_no" | "text";
+export type AnswerFormat =
+  | "yes_no"
+  | "text"
+  /** Everyone answers the same question; the first correct answer scores more. */
+  | "fastest"
+  /** Teams file a list of words into categories. */
+  | "sort";
 export type MediaType = "none" | "audio" | "video" | "image";
 export type MediaSource = "none" | "youtube" | "file";
 
@@ -15,6 +21,11 @@ export interface Question {
   accepted: string[];
   /** null falls back to Round.defaultMaxPoints */
   maxPoints: number | null;
+  /** fastest: how a correct answer is decided. */
+  fastestMode?: "exact" | "closest";
+  /** sort: the buckets, and which word belongs in which. */
+  categories?: string[];
+  items?: { word: string; category: string }[];
   mediaSource: MediaSource;
   /** YouTube URL or id, when mediaSource is "youtube" */
   url?: string;
@@ -32,6 +43,9 @@ export interface Round {
   mediaType: MediaType;
   timeLimit: number;
   defaultMaxPoints: number;
+  /** fastest rounds: what the first correct answer is worth. Everyone else
+      who was right gets defaultMaxPoints. */
+  fastestPoints?: number;
   questions: Question[];
 }
 
@@ -61,7 +75,10 @@ export interface Team {
 }
 
 export interface Answer {
+  /** For sort rounds this is JSON: { [word]: category }. */
   value: string;
+  /** For fastest rounds this is the commit time and never moves, because the
+      server refuses to overwrite an existing answer. */
   submittedAt: number;
   /** null means ungraded. Grader awards 0..maxPoints. */
   points: number | null;
@@ -185,4 +202,78 @@ export function tiedForFirst(session: Session): Standing[] {
   if (top === 0) return [];
   const tied = standings.filter((s) => s.score === top);
   return tied.length > 1 ? tied : [];
+}
+
+
+/* ---------- fastest ---------- */
+
+/** Distance from the target for a closest-wins answer, or null if the team
+    didn't write a number. */
+export function numericDistance(value: string, target: string): number | null {
+  const a = Number(String(value).replace(/[^\d.-]/g, ""));
+  const b = Number(String(target).replace(/[^\d.-]/g, ""));
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.abs(a - b);
+}
+
+export interface FastestOutcome {
+  /** teamId -> points, ready to write onto the answers. */
+  points: Record<string, number>;
+  /** Who got in first among the correct answers, if anyone did. */
+  winnerTeamId: string | null;
+}
+
+/**
+ * Exact mode: everyone matching the answer is correct.
+ * Closest mode: everyone tied at the smallest distance is correct.
+ * Either way the earliest submission among them takes the bonus.
+ */
+export function scoreFastest(
+  entries: { teamId: string; value: string; submittedAt: number }[],
+  question: Question,
+  correctPoints: number,
+  fastestPoints: number
+): FastestOutcome {
+  const points: Record<string, number> = {};
+  for (const e of entries) points[e.teamId] = 0;
+
+  let correct: typeof entries;
+  if ((question.fastestMode ?? "exact") === "closest") {
+    const scored = entries
+      .map((e) => ({ e, d: numericDistance(e.value, question.correct) }))
+      .filter((x): x is { e: (typeof entries)[number]; d: number } => x.d !== null);
+    if (scored.length === 0) return { points, winnerTeamId: null };
+    const best = Math.min(...scored.map((x) => x.d));
+    correct = scored.filter((x) => x.d === best).map((x) => x.e);
+  } else {
+    correct = entries.filter((e) => normalise(e.value) === normalise(question.correct));
+  }
+
+  if (correct.length === 0) return { points, winnerTeamId: null };
+  const first = correct.reduce((a, b) => (a.submittedAt <= b.submittedAt ? a : b));
+  for (const e of correct) points[e.teamId] = correctPoints;
+  points[first.teamId] = fastestPoints;
+  return { points, winnerTeamId: first.teamId };
+}
+
+/* ---------- sort ---------- */
+
+export function parseSortAnswer(value: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** One point per correctly filed word, scaled to the question's max. */
+export function scoreSort(value: string, question: Question): { correct: number; total: number } {
+  const items = question.items ?? [];
+  const placed = parseSortAnswer(value);
+  let correct = 0;
+  for (const item of items) {
+    if (normalise(placed[item.word] ?? "") === normalise(item.category)) correct++;
+  }
+  return { correct, total: items.length };
 }

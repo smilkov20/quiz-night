@@ -2,6 +2,7 @@ import type { WebSocket } from "ws";
 import {
   ClientMessageSchema, makeToken, LATE_SUBMIT_GRACE_MS,
   answerKey, computeStandings, countUngraded, maxPointsOf, normalise, tiedForFirst,
+  scoreFastest, scoreSort,
   type ConnectionRole, type HostAction, type Quiz, type ServerMessage,
   type Session, type Snapshot, type Round,
 } from "@quiz/shared";
@@ -261,11 +262,38 @@ export class LiveSession {
     if (this.mediaTimer) { clearTimeout(this.mediaTimer); this.mediaTimer = null; }
     const round = s.quiz.rounds[s.roundIdx];
     const q = round?.questions[s.questionIdx];
-    if (round && q && round.answerFormat === "yes_no") {
+    if (round && q) {
       const cap = maxPointsOf(round, q);
-      for (const t of s.teams) {
-        const a = s.answers[answerKey(t.id, q.id)];
-        if (a) a.points = normalise(a.value) === normalise(q.correct) ? cap : 0;
+
+      if (round.answerFormat === "yes_no") {
+        for (const t of s.teams) {
+          const a = s.answers[answerKey(t.id, q.id)];
+          if (a) a.points = normalise(a.value) === normalise(q.correct) ? cap : 0;
+        }
+      }
+
+      if (round.answerFormat === "fastest") {
+        // Both modes are computable, so the host never has to arbitrate a
+        // race in front of a room.
+        const entries = s.teams
+          .map((t) => ({ teamId: t.id, answer: s.answers[answerKey(t.id, q.id)] }))
+          .filter((x) => x.answer)
+          .map((x) => ({ teamId: x.teamId, value: x.answer!.value, submittedAt: x.answer!.submittedAt }));
+        const { points } = scoreFastest(entries, q, cap, round.fastestPoints ?? cap + 1);
+        for (const [teamId, pts] of Object.entries(points)) {
+          const a = s.answers[answerKey(teamId, q.id)];
+          if (a) a.points = pts;
+        }
+      }
+
+      if (round.answerFormat === "sort") {
+        // One point per correctly filed word, scaled to the question's max.
+        for (const t of s.teams) {
+          const a = s.answers[answerKey(t.id, q.id)];
+          if (!a) continue;
+          const { correct, total } = scoreSort(a.value, q);
+          a.points = total === 0 ? 0 : Math.round((correct / total) * cap);
+        }
       }
     }
     s.phase = "locked";
@@ -282,7 +310,9 @@ export class LiveSession {
       if (Date.now() > deadline) return;
     }
     const k = answerKey(teamId, questionId);
-    s.answers[k] = { value, submittedAt: Date.now(), points: s.answers[k]?.points ?? null };
+    const existing = s.answers[k];
+    if (round.answerFormat === "fastest" && existing) return;
+    s.answers[k] = { value, submittedAt: Date.now(), points: existing?.points ?? null };
   }
 
   private findQuestion(questionId: string) {

@@ -5,7 +5,7 @@ import {
   Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy, Coffee,
 } from "lucide-react";
 import {
-  answerKey, maxPointsOf, normalise, type Round, type Snapshot,
+  answerKey, maxPointsOf, normalise, scoreSort, type Round, type Snapshot,
 } from "@quiz/shared";
 import { C, FONT_DATA, FONT_DISPLAY } from "../ui/theme";
 import { Btn, Countdown, Eyebrow, Leaderboard, Panel, Pill, useToasts } from "../ui/kit";
@@ -480,16 +480,39 @@ function Grading({ snapshot, onClose, onAward }: {
         <div className="overflow-y-auto p-4 flex flex-col gap-5">
           {round.questions.map((q) => {
             const max = maxPointsOf(round, q);
-            const clusters = new Map<string, { display: string; teams: string[]; names: string[]; points: number | null }>();
+            const clusters = new Map<string, { display: string; teams: string[]; names: string[]; points: number | null; sub?: string }>();
             for (const t of s.teams) {
               const a = s.answers[answerKey(t.id, q.id)];
               if (!a) continue;
-              const key = normalise(a.value) || "(blank)";
+              // A sort answer is JSON, and a speed answer's timing is the
+              // whole story — neither reads well as a raw string.
+              let display = a.value;
+              let sub: string | undefined;
+              if (round.answerFormat === "sort") {
+                const { correct, total } = scoreSort(a.value, q);
+                display = `${correct} of ${total} filed correctly`;
+                sub = undefined;
+              } else if (round.answerFormat === "fastest") {
+                sub = new Date(a.submittedAt).toLocaleTimeString(undefined, {
+                  minute: "2-digit", second: "2-digit",
+                });
+              }
+              const key = round.answerFormat === "sort" || round.answerFormat === "fastest"
+                ? t.id                      // never merge rows where timing or detail matters
+                : normalise(a.value) || "(blank)";
               const existing = clusters.get(key);
               if (existing) { existing.teams.push(t.id); existing.names.push(t.name); }
-              else clusters.set(key, { display: a.value, teams: [t.id], names: [t.name], points: a.points });
+              else clusters.set(key, { display, teams: [t.id], names: [t.name], points: a.points, sub });
             }
             const list = [...clusters.values()];
+            if (round.answerFormat === "fastest") {
+              // Earliest first, so the race is readable at a glance.
+              list.sort((x, y) => {
+                const ax = s.answers[answerKey(x.teams[0], q.id)]?.submittedAt ?? 0;
+                const ay = s.answers[answerKey(y.teams[0], q.id)]?.submittedAt ?? 0;
+                return ax - ay;
+              });
+            }
             const suggested = (v: string) =>
               normalise(v) === normalise(q.correct) || q.accepted.some((x) => normalise(x) === normalise(v));
 
@@ -506,7 +529,10 @@ function Grading({ snapshot, onClose, onAward }: {
                       style={{ background: C.card, border: `1px solid ${suggested(cl.display) ? C.correct : C.rule}` }}>
                       <div className="flex-1 min-w-32">
                         <div style={{ fontWeight: 600 }}>{cl.display}</div>
-                        <div className="text-xs" style={{ color: C.inkDim }}>{cl.names.join(", ")}</div>
+                        <div className="text-xs" style={{ color: C.inkDim }}>
+                          {cl.names.join(", ")}{cl.sub ? ` · ${cl.sub}` : ""}
+                          {round.answerFormat === "fastest" && i === 0 ? " · first in" : ""}
+                        </div>
                       </div>
                       <div className="flex gap-1">
                         {Array.from({ length: max + 1 }).map((_, pts) => (

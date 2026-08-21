@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
-import { answerKey, maxPointsOf, type Snapshot } from "@quiz/shared";
+import { Check, Zap } from "lucide-react";
+import { answerKey, maxPointsOf, parseSortAnswer, type Snapshot } from "@quiz/shared";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Countdown, Eyebrow, Leaderboard, Pill } from "../ui/kit";
 import { useQuizSocket, apiFetch, API } from "../useQuizSocket";
@@ -312,6 +312,20 @@ function AnswerPad({ snapshot, teamId, remaining, onAnswer }: {
         </div>
       )}
 
+      {(canAnswer || locked) && round.answerFormat === "fastest" && (
+        <FastestPad
+          question={question} committed={Boolean(stored)} committedValue={stored?.value}
+          canAnswer={canAnswer} onCommit={(v) => onAnswer(question.id, v)}
+        />
+      )}
+
+      {(canAnswer || locked) && round.answerFormat === "sort" && (
+        <SortPad
+          question={question} value={stored?.value ?? ""} canAnswer={canAnswer}
+          onChange={(v) => onAnswer(question.id, v)}
+        />
+      )}
+
       {(canAnswer || locked) && round.answerFormat === "text" && (
         <div>
           {/* A ruled line to write on, in biro blue — not a form field. */}
@@ -377,3 +391,111 @@ function Waiting({ status, onForget }: { status: string; onForget?: (msg?: strin
 }
 
 export { API };
+
+
+/** Fastest rounds are the one place with a commit button. Autosave would make
+    "first" meaningless, so the answer is sent once and can't be changed. */
+function FastestPad({ question, committed, committedValue, canAnswer, onCommit }: {
+  question: { fastestMode?: "exact" | "closest" };
+  committed: boolean;
+  committedValue?: string;
+  canAnswer: boolean;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const numeric = question.fastestMode === "closest";
+
+  if (committed) {
+    return (
+      <div className="rounded-xl border px-4 py-5 text-center"
+        style={{ borderColor: C.biro, background: C.card }}>
+        <div className="text-xs uppercase mb-1" style={{ color: C.inkDim, letterSpacing: "0.16em", fontWeight: 700 }}>
+          Locked in
+        </div>
+        <div style={{ fontSize: 26, fontWeight: 600, color: C.biro }}>{committedValue}</div>
+        <p className="mt-2 text-xs" style={{ color: C.inkDim }}>
+          No changes in a speed round — that's the point.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <input
+        autoFocus value={draft} disabled={!canAnswer}
+        inputMode={numeric ? "numeric" : "text"}
+        placeholder={numeric ? "A number" : "Your answer"}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) onCommit(draft.trim()); }}
+        className="w-full rounded-lg border px-3 py-3 mb-3"
+        style={{ background: C.card, borderColor: C.rule, color: C.biro, fontSize: 22, fontWeight: 500 }}
+      />
+      <button
+        onClick={() => draft.trim() && onCommit(draft.trim())}
+        disabled={!canAnswer || !draft.trim()}
+        className="w-full rounded-xl py-4 flex items-center justify-center gap-2 disabled:opacity-40"
+        style={{ background: C.biro, color: C.onInk, fontWeight: 700, fontSize: 18 }}>
+        <Zap size={18} /> Lock it in
+      </button>
+      <p className="mt-2 text-xs text-center" style={{ color: C.inkDim }}>
+        Fastest correct answer scores more. You only get one go.
+      </p>
+    </div>
+  );
+}
+
+/** Chips rather than drag-and-drop: dragging a dozen words on a phone in a
+    dark pub is miserable, and tapping is faster anyway. */
+function SortPad({ question, value, canAnswer, onChange }: {
+  question: { categories?: string[]; items?: { word: string; category: string }[] };
+  value: string;
+  canAnswer: boolean;
+  onChange: (value: string) => void;
+}) {
+  const categories = question.categories ?? [];
+  const words = (question.items ?? []).map((i) => i.word);
+  const placed = parseSortAnswer(value);
+
+  const assign = (word: string, category: string) => {
+    const next = { ...placed };
+    if (next[word] === category) delete next[word];
+    else next[word] = category;
+    onChange(JSON.stringify(next));
+  };
+
+  const done = words.filter((w) => placed[w]).length;
+
+  return (
+    <div>
+      <div className="text-xs mb-2" style={{ color: done === words.length ? C.correct : C.inkDim }}>
+        {done} of {words.length} filed
+      </div>
+      <div className="flex flex-col gap-2">
+        {words.map((word) => (
+          <div key={word} className="rounded-lg border p-2" style={{ background: C.card, borderColor: C.rule }}>
+            <div className="mb-1.5" style={{ fontWeight: 600 }}>{word}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {categories.map((cat) => {
+                const active = placed[word] === cat;
+                return (
+                  <button key={cat} disabled={!canAnswer} onClick={() => assign(word, cat)}
+                    className="rounded-full px-3 py-1.5 text-sm"
+                    style={{
+                      background: active ? C.biro : C.row,
+                      color: active ? C.onInk : C.ink,
+                      border: `1px solid ${active ? C.biro : C.rule}`,
+                      fontWeight: active ? 600 : 400,
+                      opacity: canAnswer ? 1 : 0.6,
+                    }}>
+                    {cat}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

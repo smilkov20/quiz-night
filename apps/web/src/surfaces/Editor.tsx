@@ -284,6 +284,8 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                       className="rounded-md border px-2 py-1.5 text-sm" style={field}>
                       <option value="text">Open text</option>
                       <option value="yes_no">Yes / No</option>
+                      <option value="fastest">Fastest wins</option>
+                      <option value="sort">Sort into categories</option>
                     </select>
                   </label>
                   <label className="flex flex-col gap-1">
@@ -303,11 +305,19 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                       className="rounded-md border px-2 py-1.5 text-sm" style={field} />
                   </label>
                   <label className="flex flex-col gap-1">
-                    <Eyebrow>Points</Eyebrow>
+                    <Eyebrow>{r.answerFormat === "fastest" ? "Correct" : "Points"}</Eyebrow>
                     <input type="number" value={r.defaultMaxPoints}
                       onChange={(e) => patchRound(r.id, { defaultMaxPoints: Number(e.target.value) || 1 })}
                       className="rounded-md border px-2 py-1.5 text-sm" style={field} />
                   </label>
+                  {r.answerFormat === "fastest" && (
+                    <label className="flex flex-col gap-1">
+                      <Eyebrow>Fastest</Eyebrow>
+                      <input type="number" value={r.fastestPoints ?? r.defaultMaxPoints + 1}
+                        onChange={(e) => patchRound(r.id, { fastestPoints: Number(e.target.value) || 1 })}
+                        className="rounded-md border px-2 py-1.5 text-sm" style={{ ...field, color: C.biro }} />
+                    </label>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-2">
@@ -328,6 +338,22 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                               onChange={(e) => patchQuestion(r.id, q.id, { maxPoints: e.target.value === "" ? null : Number(e.target.value) })}
                               className="w-16 rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.card }} />
                           </div>
+
+                          {r.answerFormat === "fastest" && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs" style={{ color: C.inkDim }}>Correct if</span>
+                              <select value={q.fastestMode ?? "exact"}
+                                onChange={(e) => patchQuestion(r.id, q.id, { fastestMode: e.target.value as "exact" | "closest" })}
+                                className="rounded border px-2 py-1 text-sm" style={{ ...field, background: C.card }}>
+                                <option value="exact">it matches exactly</option>
+                                <option value="closest">it's closest to the number</option>
+                              </select>
+                            </div>
+                          )}
+
+                          {r.answerFormat === "sort" && (
+                            <SortEditor question={q} onPatch={(patch) => patchQuestion(r.id, q.id, patch)} field={field} />
+                          )}
 
                           {r.mediaType !== "none" && (
                             <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
@@ -456,6 +482,64 @@ function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 text-center"
       style={{ background: C.page, color: C.inkDim }}>{children}</div>
+  );
+}
+
+/** Categories as a comma-separated line, because typing three words is faster
+    than three separate add-a-field interactions. */
+function SortEditor({ question, onPatch, field }: {
+  question: Question;
+  onPatch: (patch: Partial<Question>) => void;
+  field: React.CSSProperties;
+}) {
+  const categories = question.categories ?? [];
+  const items = question.items ?? [];
+
+  const setCategories = (raw: string) => {
+    const next = raw.split(",").map((c) => c.trim()).filter(Boolean);
+    // Any word filed under a category that no longer exists loses its home.
+    const cleaned = items.map((it) => (next.includes(it.category) ? it : { ...it, category: next[0] ?? "" }));
+    onPatch({ categories: next, items: cleaned });
+  };
+
+  const setItem = (i: number, patch: Partial<{ word: string; category: string }>) =>
+    onPatch({ items: items.map((it, n) => (n === i ? { ...it, ...patch } : it)) });
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
+      <input
+        value={categories.join(", ")}
+        placeholder="Categories, comma separated — e.g. Fruit, Vegetable, Nut"
+        onChange={(e) => setCategories(e.target.value)}
+        className="rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.page }} />
+
+      {items.map((it, i) => (
+        <div key={i} className="flex gap-1.5">
+          <input value={it.word} placeholder="Word"
+            onChange={(e) => setItem(i, { word: e.target.value })}
+            className="flex-1 min-w-0 rounded border px-2 py-1 text-sm" style={{ ...field, background: C.page }} />
+          <select value={it.category} onChange={(e) => setItem(i, { category: e.target.value })}
+            className="rounded border px-2 py-1 text-sm" style={{ ...field, background: C.page, color: C.correct }}>
+            {categories.length === 0 && <option value="">Add categories first</option>}
+            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <button onClick={() => onPatch({ items: items.filter((_, n) => n !== i) })}
+            style={{ color: C.inkDim }}><Trash2 size={13} /></button>
+        </div>
+      ))}
+
+      <button
+        onClick={() => onPatch({ items: [...items, { word: "", category: categories[0] ?? "" }] })}
+        disabled={categories.length === 0}
+        className="self-start rounded border px-2 py-1 text-xs disabled:opacity-40"
+        style={{ borderColor: C.rule, color: C.ink, fontWeight: 600 }}>
+        + Word
+      </button>
+
+      <p className="text-xs" style={{ color: C.inkDim }}>
+        Scored per word: {items.length} to file, marked automatically.
+      </p>
+    </div>
   );
 }
 
