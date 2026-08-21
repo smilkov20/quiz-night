@@ -35,14 +35,17 @@ export const clipLen = (q: Pick<Question, "clipStart" | "clipEnd">) =>
  * missed event would mean the clock never starts in front of a full room.
  */
 export function YouTubeStage({
-  question, playing, coverPicture, onEnded, size,
+  question, playing, coverPicture, onEnded, size, muted = false,
 }: {
   question: Question | null;
   playing: boolean;
   /** Music round: the room hears it but must not see the answer on screen. */
   coverPicture: boolean;
-  onEnded: () => void;
+  onEnded?: () => void;
   size: "projector" | "monitor" | "hidden";
+  /** The host's monitor is silent — only one surface may make noise, or the
+      room hears the clip twice, slightly out of sync. */
+  muted?: boolean;
 }) {
   const player = useRef<any>(null);
   const [ready, setReady] = useState(false);
@@ -51,6 +54,7 @@ export function YouTubeStage({
   const fallback = useRef<number | null>(null);
   const endedRef = useRef(onEnded);
   endedRef.current = onEnded;
+  const fire = () => endedRef.current?.();
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +66,7 @@ export function YouTubeStage({
           onReady: () => setReady(true),
           onError: (e: { data: number }) => setError(YT_ERRORS[e.data] ?? "Clip failed to play"),
           onStateChange: (e: { data: number }) => {
-            if (e.data === window.YT?.PlayerState?.ENDED) endedRef.current();
+            if (e.data === window.YT?.PlayerState?.ENDED) fire();
           },
         },
       });
@@ -89,11 +93,12 @@ export function YouTubeStage({
     if (!id) { setError("No YouTube link on this question"); return; }
     setError(null);
     const from = question.clipStart ?? 0;
+    if (muted) player.current?.mute?.(); else player.current?.unMute?.();
     player.current?.loadVideoById({ videoId: id, startSeconds: from, endSeconds: question.clipEnd ?? from + 15 });
     if (fallback.current) window.clearTimeout(fallback.current);
-    fallback.current = window.setTimeout(() => endedRef.current(), clipLen(question) * 1000 + 800);
+    fallback.current = window.setTimeout(() => fire(), clipLen(question) * 1000 + 800);
     return () => { if (fallback.current) window.clearTimeout(fallback.current); };
-  }, [playing, question?.id, question?.url, ready]);
+  }, [playing, question?.id, question?.url, ready, muted]);
 
   useEffect(() => {
     if (!playing) player.current?.stopVideo?.();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Snapshot } from "@quiz/shared";
 import type { ClientMessage, ConnectionRole, HostAction } from "@quiz/shared";
+import { isFatalClose, CLOSE_NO_ROOM } from "@quiz/shared";
 
 /* Empty means same origin, which is the deployed case: one Node process
    serves the frontend and the socket. Set VITE_API_URL only when the two are
@@ -30,6 +31,9 @@ export function useQuizSocket({ code, role, teamId, token, hostKey }: Options) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<ConnStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
+  /* Set when the server closes with a reason that reconnecting can never fix
+     — a room that no longer exists, or a rejected credential. */
+  const [fatal, setFatal] = useState<"no-room" | "unauthorised" | null>(null);
   /** serverNow - clientNow. Applied to every countdown so a skewed device
       clock can't hand one team extra seconds. */
   const offset = useRef(0);
@@ -56,6 +60,7 @@ export function useQuizSocket({ code, role, teamId, token, hostKey }: Options) {
         retry.current = 0;
         setStatus("open");
         setError(null);
+        setFatal(null);
       };
       socket.onmessage = (ev) => {
         try {
@@ -70,9 +75,14 @@ export function useQuizSocket({ code, role, teamId, token, hostKey }: Options) {
           /* ignore malformed frame */
         }
       };
-      socket.onclose = () => {
+      socket.onclose = (ev) => {
         setStatus("closed");
         if (!alive.current) return;
+        if (isFatalClose(ev.code)) {
+          // Retrying is pointless: the room is gone or we aren't allowed in.
+          setFatal(ev.code === CLOSE_NO_ROOM ? "no-room" : "unauthorised");
+          return;
+        }
         // Backoff, capped — a pub's wifi drops often enough that hammering
         // reconnects would make things worse, not better.
         const delay = Math.min(1000 * 2 ** retry.current, 10000);
@@ -112,7 +122,7 @@ export function useQuizSocket({ code, role, teamId, token, hostKey }: Options) {
   /** Server time, not device time. */
   const now = useCallback(() => Date.now() + offset.current, []);
 
-  return { snapshot, status, error, send, host, answer, now };
+  return { snapshot, status, error, fatal, send, host, answer, now };
 }
 
 /* ---------- REST helpers ---------- */

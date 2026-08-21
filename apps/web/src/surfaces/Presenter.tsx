@@ -7,13 +7,25 @@ import { YouTubeStage, clipLen } from "../ui/YouTubeStage";
 /** The projector. Read from fifteen metres across a noisy room, so type is
     enormous and there is only ever one thing on screen. */
 export function PresenterSurface({ code, token }: { code: string; token: string }) {
-  const { snapshot, host, now } = useQuizSocket({ code, role: "presenter", token });
+  const { snapshot, fatal, send, now } = useQuizSocket({ code, role: "presenter", token });
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 100);
     return () => clearInterval(id);
   }, []);
 
+  if (fatal) {
+    return (
+      <Shell>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: "clamp(26px,4.4vw,46px)" }}>
+          {fatal === "no-room" ? "That room has ended" : "Link no longer valid"}
+        </div>
+        <p className="mt-3" style={{ color: C.inkDim }}>
+          Open the room again on the host console for a fresh presenter link.
+        </p>
+      </Shell>
+    );
+  }
   if (!snapshot) return <Shell><p style={{ color: C.inkDim }}>Connecting…</p></Shell>;
   const s = snapshot.session;
   const round = s.quiz.rounds[s.roundIdx];
@@ -28,7 +40,7 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
         question={question ?? null}
         playing={playing}
         coverPicture={round?.mediaType === "audio"}
-        onEnded={() => host({ action: "start_timer" })}
+        onEnded={() => send({ type: "media_ended" })}
         size={playing ? "projector" : "hidden"}
       />
       <Shell>

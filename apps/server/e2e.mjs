@@ -58,9 +58,14 @@ const wsB = await open(`ws://127.0.0.1:${PORT}/ws?code=${joinCode}&role=team&tea
 await wait(150);
 assert(last(host).session.teams.length === 2, "host sees both teams");
 
-let badHost = false;
-try { await open(`ws://127.0.0.1:${PORT}/ws?code=${joinCode}&role=host&key=wrong`); } catch { badHost = true; }
-assert(badHost, "wrong host password refused at upgrade");
+/* A rejected credential now closes with 4003 rather than destroying the
+   socket, so the client can tell "wrong password" from "wifi dropped". */
+const badHost = await new Promise((resolve) => {
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws?code=${joinCode}&role=host&key=wrong`);
+  ws.on("close", (c) => resolve(c));
+  ws.on("error", () => resolve(-1));
+});
+assert(badHost === 4003, `wrong host password closed with 4003 (got ${badHost})`);
 
 const act = (payload) => host.send(JSON.stringify({ type: "host", payload }));
 act({ action: "begin_round" }); await wait(80);
@@ -122,6 +127,48 @@ act({ action: "next_question" }); await wait(80);
 act({ action: "show_leaderboard" }); await wait(80);
 act({ action: "finish" }); await wait(120);
 assert(last(pres).session.state === "finished", "quiz finished, presenter in sync");
+
+/* A phone holding last week's code must be told the room is gone, not left
+   retrying forever. Regression guard for the stale-room bug. */
+const closeCode = await new Promise((resolve) => {
+  const dead = new WebSocket(`ws://127.0.0.1:${PORT}/ws?code=ZZZZZ&role=team&teamId=nobody`);
+  dead.on("close", (code) => resolve(code));
+  dead.on("error", () => resolve(-1));
+});
+assert(closeCode === 4004, `unknown room closes with 4004 (got ${closeCode})`);
+
+const badPresenter = await new Promise((resolve) => {
+  const dead = new WebSocket(`ws://127.0.0.1:${PORT}/ws?code=${joinCode}&role=presenter&token=wrong`);
+  dead.on("close", (c) => resolve(c));
+  dead.on("error", () => resolve(-1));
+});
+assert(badPresenter === 4003, `bad presenter token closes with 4003 (got ${badPresenter})`);
+
+/* A media round must reach the answer phase on the server's own timer. The
+   presenter can't issue host actions, so depending on its ENDED event meant
+   the music round hung forever. */
+const mediaQuiz = JSON.parse(JSON.stringify(quiz));
+mediaQuiz.rounds = [{
+  id: "m1", order: 0, title: "Music", answerFormat: "text", mediaType: "audio",
+  timeLimit: 3, defaultMaxPoints: 1,
+  questions: [{ id: "mq1", order: 0, prompt: "Name it", correct: "X", accepted: [],
+                maxPoints: null, mediaSource: "youtube", url: "", clipStart: 0, clipEnd: 1 }],
+}];
+const m = await post("/api/sessions", { quiz: mediaQuiz }, KEY);
+const mHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${m.joinCode}&role=host&key=${KEY}`);
+await wait(100);
+const mAct = (payload) => mHost.send(JSON.stringify({ type: "host", payload }));
+mAct({ action: "begin_round" }); await wait(60);
+mAct({ action: "reveal_question" }); await wait(60);
+mAct({ action: "play_media" }); await wait(60);
+assert(last(mHost).session.phase === "playing_media", "clip is playing");
+await wait(1800);
+assert(last(mHost).session.phase === "answering",
+  `media auto-advances to answering without any client event (got ${last(mHost).session.phase})`);
+
+/* Teams arriving during round one is normal in a pub. */
+const late = await post("/api/join", { code: m.joinCode, name: "Latecomers" });
+assert(!late.error && late.teamId, "a team can still join after the quiz has started");
 
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wsB].forEach(w => w.close());

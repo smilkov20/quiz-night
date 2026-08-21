@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Play, RotateCcw, Lock, Unlock, ChevronRight, ChevronLeft, Users, Trophy,
   ClipboardCheck, Eye, Flag, Trash2, AlertTriangle, Check, Timer as TimerIcon,
-  Music, Video, Type, ToggleLeft, Image as ImageIcon,
+  Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy,
 } from "lucide-react";
 import {
   answerKey, maxPointsOf, normalise, type Round, type Snapshot,
@@ -21,13 +21,29 @@ export const roundIcon = (r: Round) => {
 };
 
 export function HostSurface({ code, hostKey }: { code: string; hostKey: string }) {
-  const { snapshot, status, host, now } = useQuizSocket({ code, role: "host", hostKey });
+  const { snapshot, status, fatal, host, now } = useQuizSocket({ code, role: "host", hostKey });
   const [grading, setGrading] = useState(false);
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 100);
     return () => clearInterval(id);
   }, []);
+
+  if (fatal) {
+    return (
+      <Fatal
+        title={fatal === "no-room" ? "That room has ended" : "Sign-in rejected"}
+        detail={fatal === "no-room"
+          ? "The server restarted or the room was reaped. Open a new room to carry on."
+          : "The host password wasn't accepted. Sign in again."}
+        action={fatal === "unauthorised" ? "Sign in again" : "Back to the editor"}
+        onAction={() => {
+          if (fatal === "unauthorised") sessionStorage.removeItem("quiz.host.key");
+          window.location.assign("/host");
+        }}
+      />
+    );
+  }
 
   if (!snapshot) {
     return (
@@ -56,8 +72,8 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
       <YouTubeStage
         question={question ?? null} playing={playing}
         coverPicture={round?.mediaType === "audio"}
-        onEnded={() => host({ action: "start_timer" })}
         size={playing ? "monitor" : "hidden"}
+        muted
       />
 
       <div className="max-w-7xl mx-auto grid gap-4 lg:grid-cols-3">
@@ -65,9 +81,7 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
           <div className="flex items-center gap-2">
             <Pill tone={status === "open" ? "live" : "danger"}>{status}</Pill>
             <Pill tone="dim">{s.state.replace("_", " ")}{s.state === "in_round" ? ` · ${s.phase}` : ""}</Pill>
-            <span className="ml-auto text-sm" style={{ color: C.inkDim }}>
-              Presenter: <code style={{ fontFamily: FONT_DATA }}>/present/{s.joinCode}/{s.presenterToken.slice(0, 8)}…</code>
-            </span>
+            <span className="ml-auto"><PresenterControls session={s} compact /></span>
           </div>
 
           {s.state === "lobby" && (
@@ -82,11 +96,15 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                   </div>
                   <div className="flex-1 w-full">
                     <p className="text-sm mb-3" style={{ color: C.inkDim }}>
-                      Teams join at the code above. Start when everyone's in.
+                      Teams join at the code above. Open the presenter view on your
+                      second screen before you start.
                     </p>
-                    <Btn tone="primary" onClick={() => host({ action: "begin_round" })} disabled={s.teams.length < 1}>
-                      Start round 1 <ChevronRight size={14} />
-                    </Btn>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PresenterControls session={s} />
+                      <Btn onClick={() => host({ action: "begin_round" })} disabled={s.teams.length < 1}>
+                        Start round 1 <ChevronRight size={14} />
+                      </Btn>
+                    </div>
                   </div>
                 </div>
               </Panel>
@@ -229,6 +247,13 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                   );
                 })}
               </div>
+              {s.tiebreakIdx + 1 < s.quiz.tiebreakers.length && (
+                <div className="mt-3">
+                  <Btn onClick={() => host({ action: "next_tiebreaker" })}>
+                    Still tied — next tiebreaker
+                  </Btn>
+                </div>
+              )}
             </Panel>
           )}
         </div>
@@ -274,6 +299,34 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
       </div>
 
       {grading && <Grading snapshot={snapshot} onClose={() => setGrading(false)} onAward={host} />}
+    </div>
+  );
+}
+
+function PresenterControls({ session, compact }: { session: Snapshot["session"]; compact?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/present/${session.joinCode}/${session.presenterToken}`;
+
+  /* Named window, so pressing this again focuses the projector view you
+     already have rather than opening a second one. Drag it to the TV. */
+  const openPresenter = () =>
+    window.open(url, "quiz-presenter", "popup=yes,width=1280,height=720");
+
+  const copyLink = () =>
+    navigator.clipboard?.writeText(url).then(
+      () => { setCopied(true); setTimeout(() => setCopied(false), 2000); },
+      // Clipboard access needs HTTPS; prompt() still lets them copy by hand.
+      () => window.prompt("Copy the presenter link:", url)
+    ) ?? window.prompt("Copy the presenter link:", url);
+
+  return (
+    <div className="flex items-center gap-2">
+      <Btn small={compact} tone="primary" onClick={openPresenter}>
+        <Monitor size={14} /> Open presenter
+      </Btn>
+      <Btn small={compact} onClick={copyLink} title="For opening on a separate device">
+        {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy link</>}
+      </Btn>
     </div>
   );
 }
@@ -401,6 +454,20 @@ function Grading({ snapshot, onClose, onAward }: {
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function Fatal({ title, detail, action, onAction }: {
+  title: string; detail: string; action: string; onAction: () => void;
+}) {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: C.page, color: C.ink }}>
+      <div className="max-w-sm text-center">
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, letterSpacing: "-0.02em" }}>{title}</div>
+        <p className="mt-2 mb-5 text-sm" style={{ color: C.inkDim }}>{detail}</p>
+        <Btn tone="primary" onClick={onAction}>{action}</Btn>
       </div>
     </div>
   );

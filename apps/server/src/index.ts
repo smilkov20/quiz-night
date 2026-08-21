@@ -4,6 +4,7 @@ import { join, extname, normalize, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
 import { timingSafeEqual } from "node:crypto";
 import type { ConnectionRole, Quiz } from "@quiz/shared";
+import { CLOSE_NO_ROOM, CLOSE_UNAUTHORISED } from "@quiz/shared";
 import { LiveSession } from "./session";
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -166,14 +167,23 @@ server.on("upgrade", (req, socket, head) => {
   const code = (url.searchParams.get("code") ?? "").toUpperCase();
   const role = (url.searchParams.get("role") ?? "team") as ConnectionRole;
   const teamId = url.searchParams.get("teamId") ?? undefined;
+  /* Close with an application code rather than destroying the socket. A
+     destroyed socket looks identical to a dropped wifi connection, so the
+     client can't tell "keep retrying" from "this room is gone" — which left
+     phones from last week's quiz retrying a dead code forever. */
+  const reject = (closeCode: number, reason: string) =>
+    wss.handleUpgrade(req, socket, head, (ws) => ws.close(closeCode, reason));
+
   const room = rooms.get(code);
-  if (!room) return socket.destroy();
+  if (!room) return reject(CLOSE_NO_ROOM, "no-such-room");
 
   // A browser can't set headers on a WebSocket handshake, so the host key
   // and the presenter token ride in the query string.
-  if (role === "host" && !checkPassword(url.searchParams.get("key") ?? "")) return socket.destroy();
+  if (role === "host" && !checkPassword(url.searchParams.get("key") ?? "")) {
+    return reject(CLOSE_UNAUTHORISED, "bad-host-key");
+  }
   if (role === "presenter" && url.searchParams.get("token") !== room.session.presenterToken) {
-    return socket.destroy();
+    return reject(CLOSE_UNAUTHORISED, "bad-presenter-token");
   }
 
   wss.handleUpgrade(req, socket, head, (ws) => room.addSocket(ws, role, teamId));

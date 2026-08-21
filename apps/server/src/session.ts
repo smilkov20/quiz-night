@@ -3,7 +3,7 @@ import {
   ClientMessageSchema, makeToken, LATE_SUBMIT_GRACE_MS,
   answerKey, computeStandings, countUngraded, maxPointsOf, normalise, tiedForFirst,
   type ConnectionRole, type HostAction, type Quiz, type ServerMessage,
-  type Session, type Snapshot,
+  type Session, type Snapshot, type Round,
 } from "@quiz/shared";
 
 interface Conn { ws: WebSocket; role: ConnectionRole; teamId?: string }
@@ -20,6 +20,7 @@ export class LiveSession {
   private conns = new Set<Conn>();
   private tokens = new Map<string, string>();
   private lockTimer: NodeJS.Timeout | null = null;
+  private mediaTimer: NodeJS.Timeout | null = null;
 
   constructor(quiz: Quiz, joinCode: string) {
     this.session = {
@@ -40,7 +41,7 @@ export class LiveSession {
         return { teamId: existing, teamToken: token };
       }
     }
-    if (this.session.state !== "lobby") return { error: "The quiz has already started" };
+    if (this.session.state === "finished") return { error: "This quiz has finished" };
     const clean = name.trim().slice(0, 60);
     if (!clean) return { error: "Pick a team name" };
     if (this.session.teams.some((t) => normalise(t.name) === normalise(clean))) {
@@ -94,6 +95,11 @@ export class LiveSession {
       this.session.tiebreakAnswers[conn.teamId] = msg.value;
       return this.broadcast();
     }
+    if (msg.type === "media_ended") {
+      if (conn.role === "presenter") this.finishMedia();
+      return;
+    }
+
     if (msg.type === "host") {
       if (conn.role !== "host") return this.send(conn, { type: "error", message: "Not the host" });
       this.applyHostAction(msg.payload);
@@ -110,8 +116,11 @@ export class LiveSession {
       case "reveal_question":
         s.phase = "revealed"; s.questionStartedAt = null; s.mediaStartedAt = null; break;
       case "play_media":
-      case "replay_media":
-        s.phase = "playing_media"; s.mediaStartedAt = Date.now(); s.questionStartedAt = null; break;
+      case "replay_media": {
+        s.phase = "playing_media"; s.mediaStartedAt = Date.now(); s.questionStartedAt = null;
+        this.armMedia(round);
+        break;
+      }
       case "start_timer":
         if (!round) break;
         s.phase = "answering"; s.questionStartedAt = Date.now(); s.mediaStartedAt = null;
@@ -152,6 +161,12 @@ export class LiveSession {
         s.tiebreakTeams = tied.map((t) => t.teamId); s.tiebreakAnswers = {};
         break;
       }
+      case "next_tiebreaker":
+        if (s.tiebreakIdx + 1 < s.quiz.tiebreakers.length) {
+          s.tiebreakIdx += 1;
+          s.tiebreakAnswers = {};
+        }
+        break;
       case "resolve_tiebreak": s.winnerTeamId = a.teamId; s.state = "finished"; break;
       case "grade": {
         const found = this.findQuestion(a.questionId);
@@ -181,6 +196,32 @@ export class LiveSession {
     this.broadcast();
   }
 
+  /** Clip length is known from the question, so the server can advance to the
+      answer phase itself. The presenter may report an earlier real finish via
+      mediaEnded(), but nothing depends on that message arriving. */
+  private armMedia(round: Round | undefined): void {
+    if (this.mediaTimer) clearTimeout(this.mediaTimer);
+    const q = round?.questions[this.session.questionIdx];
+    if (!round || !q) return;
+    const seconds = Math.max(1, (q.clipEnd ?? 0) - (q.clipStart ?? 0));
+    this.mediaTimer = setTimeout(() => this.finishMedia(), seconds * 1000 + 400);
+  }
+
+  /** Called by the alarm above, or early by the presenter when the real clip
+      ends sooner than its configured range. */
+  finishMedia(): void {
+    const s = this.session;
+    if (s.phase !== "playing_media") return;
+    if (this.mediaTimer) { clearTimeout(this.mediaTimer); this.mediaTimer = null; }
+    const round = s.quiz.rounds[s.roundIdx];
+    if (!round) return;
+    s.phase = "answering";
+    s.questionStartedAt = Date.now();
+    s.mediaStartedAt = null;
+    this.armLock(round.timeLimit);
+    this.broadcast();
+  }
+
   /** Plain setTimeout is fine here — no hibernation to protect, unlike the
       Durable Object version this was ported from. */
   private armLock(seconds: number): void {
@@ -194,6 +235,7 @@ export class LiveSession {
     const s = this.session;
     if (s.phase === "locked") return;
     if (this.lockTimer) clearTimeout(this.lockTimer);
+    if (this.mediaTimer) { clearTimeout(this.mediaTimer); this.mediaTimer = null; }
     const round = s.quiz.rounds[s.roundIdx];
     const q = round?.questions[s.questionIdx];
     if (round && q && round.answerFormat === "yes_no") {

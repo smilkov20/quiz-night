@@ -14,13 +14,30 @@ const ID_KEY = "quiz.team.id";
 export function TeamSurface() {
   const [code, setCode] = useState(localStorage.getItem(CODE_KEY) ?? "");
   const [teamId, setTeamId] = useState(localStorage.getItem(ID_KEY));
+  const [notice, setNotice] = useState<string | null>(null);
   const joined = Boolean(code && teamId);
 
-  if (!joined) return <JoinForm onJoined={(c, id) => { setCode(c); setTeamId(id); }} />;
-  return <Playing code={code} teamId={teamId!} onEjected={() => { setTeamId(null); localStorage.removeItem(ID_KEY); }} />;
+  const forget = (message?: string) => {
+    localStorage.removeItem(ID_KEY);
+    localStorage.removeItem(CODE_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+    setTeamId(null);
+    setCode("");
+    setNotice(message ?? null);
+  };
+
+  if (!joined) {
+    return (
+      <JoinForm
+        notice={notice}
+        onJoined={(c, id) => { setCode(c); setTeamId(id); setNotice(null); }}
+      />
+    );
+  }
+  return <Playing code={code} teamId={teamId!} onForget={forget} />;
 }
 
-function JoinForm({ onJoined }: { onJoined: (code: string, teamId: string) => void }) {
+function JoinForm({ onJoined, notice }: { onJoined: (code: string, teamId: string) => void; notice?: string | null }) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -62,6 +79,10 @@ function JoinForm({ onJoined }: { onJoined: (code: string, teamId: string) => vo
           placeholder="The Quizzard of Oz"
           className="w-full rounded-lg border px-3 py-3 mb-4 text-lg"
           style={{ background: C.card, borderColor: C.rule, color: C.ink }} />
+        {notice && !err && (
+          <p className="mb-3 text-sm rounded-md px-3 py-2"
+            style={{ background: C.warnBg, color: C.ink, border: `1px solid ${C.rule}` }}>{notice}</p>
+        )}
         {err && <p className="mb-3 text-sm" style={{ color: C.marker }}>{err}</p>}
         <button onClick={submit} disabled={busy || code.length < 5 || !name.trim()}
           className="w-full rounded-lg py-3 text-lg disabled:opacity-40"
@@ -73,8 +94,14 @@ function JoinForm({ onJoined }: { onJoined: (code: string, teamId: string) => vo
   );
 }
 
-function Playing({ code, teamId, onEjected }: { code: string; teamId: string; onEjected: () => void }) {
-  const { snapshot, status, answer, send, now } = useQuizSocket({ code, role: "team", teamId });
+function Playing({ code, teamId, onForget }: { code: string; teamId: string; onForget: (msg?: string) => void }) {
+  const { snapshot, status, fatal, answer, send, now } = useQuizSocket({ code, role: "team", teamId });
+
+  /* The room this phone remembers is gone — last week's quiz, or a restarted
+     server. Drop back to the join screen instead of retrying a dead code. */
+  useEffect(() => {
+    if (fatal === "no-room") onForget("That quiz has ended. Enter the new code to join.");
+  }, [fatal, onForget]);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 100);
@@ -82,16 +109,16 @@ function Playing({ code, teamId, onEjected }: { code: string; teamId: string; on
   }, []);
   void tick;
 
-  if (!snapshot) return <Waiting status={status} />;
+  if (!snapshot) return <Waiting status={status} onForget={onForget} />;
   const s = snapshot.session;
   const me = s.teams.find((t) => t.id === teamId);
   if (!me) {
     // Host removed this team, or the session was replaced.
     return (
-      <Shell name="—" status={status}>
+      <Shell name="—" status={status} onForget={onForget}>
         <div className="text-center py-12">
           <p style={{ fontWeight: 600 }}>You're not in this quiz any more.</p>
-          <button className="mt-4 underline" style={{ color: C.biro }} onClick={onEjected}>Join again</button>
+          <button className="mt-4 underline" style={{ color: C.biro }} onClick={() => onForget()}>Join again</button>
         </div>
       </Shell>
     );
@@ -157,7 +184,8 @@ function Playing({ code, teamId, onEjected }: { code: string; teamId: string; on
         <>
           <Eyebrow>Tiebreaker{tb?.mode === "closest" ? " · closest wins" : ""}</Eyebrow>
           <p className="text-lg mb-4" style={{ fontWeight: 600 }}>{tb?.prompt}</p>
-          <input autoFocus placeholder="Your answer"
+          <input autoFocus placeholder={tb?.mode === "closest" ? "A number" : "Your answer"}
+            inputMode={tb?.mode === "closest" ? "numeric" : "text"}
             onChange={(e) => send({ type: "tiebreak_answer", value: e.target.value })}
             className="w-full rounded-lg border px-3 py-3 text-lg"
             style={{ background: C.card, borderColor: C.rule, color: C.biro }} />
@@ -187,7 +215,7 @@ function Playing({ code, teamId, onEjected }: { code: string; teamId: string; on
     );
   };
 
-  return <Shell name={me.name} status={status}>{body()}</Shell>;
+  return <Shell name={me.name} status={status} onForget={onForget}>{body()}</Shell>;
 }
 
 function AnswerPad({ snapshot, teamId, remaining, onAnswer }: {
@@ -292,13 +320,20 @@ function AnswerPad({ snapshot, teamId, remaining, onAnswer }: {
   );
 }
 
-function Shell({ children, name, status }: { children: React.ReactNode; name: string; status: string }) {
+function Shell({ children, name, status, onForget }: {
+  children: React.ReactNode; name: string; status: string; onForget?: (msg?: string) => void;
+}) {
   return (
     <div className="min-h-screen p-4" style={{ background: C.page, color: C.ink }}>
       <div className="mx-auto w-full max-w-sm">
         <div className="flex items-center gap-2 mb-3">
           <span className="flex-1 text-sm truncate" style={{ fontWeight: 600 }}>{name}</span>
           <Pill tone={status === "open" ? "live" : "danger"}>{status === "open" ? "connected" : status}</Pill>
+          {onForget && (
+            <button onClick={() => onForget()} className="text-xs underline" style={{ color: C.inkDim }}>
+              leave
+            </button>
+          )}
         </div>
         <div className="rounded-2xl border p-5" style={{ borderColor: C.rule, background: C.card, minHeight: "60vh" }}>
           {children}
@@ -308,10 +343,16 @@ function Shell({ children, name, status }: { children: React.ReactNode; name: st
   );
 }
 
-function Waiting({ status }: { status: string }) {
+function Waiting({ status, onForget }: { status: string; onForget?: (msg?: string) => void }) {
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: C.page, color: C.inkDim }}>
-      {status === "closed" ? "Reconnecting…" : "Connecting…"}
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4"
+      style={{ background: C.page, color: C.inkDim }}>
+      <span>{status === "closed" ? "Reconnecting…" : "Connecting…"}</span>
+      {onForget && (
+        <button onClick={() => onForget()} className="text-sm underline" style={{ color: C.biro }}>
+          Join a different quiz
+        </button>
+      )}
     </div>
   );
 }

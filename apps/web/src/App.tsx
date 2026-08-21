@@ -39,11 +39,11 @@ function HostRoutes() {
     <EditorSurface
       hostKey={hostKey}
       onOpenRoom={(joinCode, presenterToken) => {
-        // Presenter link is unguessable and password-free, so it can be
-        // opened on a TV browser without typing your admin password
-        // on a screen facing the room.
+        // The presenter link lives on the host console behind "Open presenter".
+        // It's unguessable and password-free, so it can go on a TV browser
+        // without typing your admin password on a screen facing the room.
+        void presenterToken;
         window.history.replaceState(null, "", `/host/${joinCode}`);
-        console.info(`Presenter view: ${window.location.origin}/present/${joinCode}/${presenterToken}`);
         setCode(joinCode);
       }}
     />

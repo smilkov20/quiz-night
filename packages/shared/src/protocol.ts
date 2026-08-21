@@ -19,6 +19,7 @@ export const HostActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("show_leaderboard") }),
   z.object({ action: z.literal("finish") }),
   z.object({ action: z.literal("run_tiebreaker") }),
+  z.object({ action: z.literal("next_tiebreaker") }),
   z.object({ action: z.literal("resolve_tiebreak"), teamId: z.string() }),
   z.object({
     action: z.literal("grade"),
@@ -44,6 +45,9 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     value: z.string().max(200),
   }),
   z.object({ type: z.literal("host"), payload: HostActionSchema }),
+  /* Presenter only: the clip actually finished. The server also has its own
+     timer, so this is an optimisation rather than a dependency. */
+  z.object({ type: z.literal("media_ended") }),
   /** Keeps a hibernating Durable Object's connection accounted for. */
   z.object({ type: z.literal("ping") }),
 ]);
@@ -73,3 +77,10 @@ export function makeToken(bytes = 18): string {
 
 /** Grace for network latency on a submission that raced the clock. */
 export const LATE_SUBMIT_GRACE_MS = 2000;
+
+/* WebSocket close codes in the 4000-4999 application range. The client uses
+   these to decide whether reconnecting could ever succeed. */
+export const CLOSE_NO_ROOM = 4004;
+export const CLOSE_UNAUTHORISED = 4003;
+export const isFatalClose = (code: number) =>
+  code === CLOSE_NO_ROOM || code === CLOSE_UNAUTHORISED;

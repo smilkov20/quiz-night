@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Check, AlertTriangle, Timer as TimerIcon, Play, Download, Upload } from "lucide-react";
-import type { Quiz, Question, Round } from "@quiz/shared";
+import { Plus, Trash2, Check, AlertTriangle, Timer as TimerIcon, Play, Download, Upload, ChevronUp, ChevronDown } from "lucide-react";
+import type { Quiz, Question, Round, Tiebreaker } from "@quiz/shared";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Btn, Eyebrow, Panel, Pill } from "../ui/kit";
 import { apiFetch } from "../useQuizSocket";
@@ -112,6 +112,63 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
       rounds: quiz.rounds.map((r) => (r.id !== rid ? r : { ...r, questions: r.questions.filter((q) => q.id !== qid) })),
     });
 
+  const patchTiebreaker = (id: string, patch: Partial<Tiebreaker>) =>
+    setQuiz({ ...quiz, tiebreakers: quiz.tiebreakers.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
+
+  const addTiebreaker = () =>
+    setQuiz({
+      ...quiz,
+      tiebreakers: [...quiz.tiebreakers, {
+        id: `t${Date.now()}`, order: quiz.tiebreakers.length,
+        prompt: "", correct: "", mode: "closest", timeLimit: 30,
+      }],
+    });
+
+  const delTiebreaker = (id: string) =>
+    setQuiz({ ...quiz, tiebreakers: quiz.tiebreakers.filter((t) => t.id !== id) });
+
+  /* `order` is decorative — the server reads array position — but keeping it
+     in step avoids nasty surprises if anything ever sorts by it. */
+  const reindex = <T extends { order: number }>(items: T[]): T[] =>
+    items.map((item, i) => ({ ...item, order: i }));
+
+  const swap = <T,>(items: T[], i: number, dir: -1 | 1): T[] | null => {
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= items.length) return null;
+    const next = [...items];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  };
+
+  const moveRound = (id: string, dir: -1 | 1) => {
+    const next = swap(quiz.rounds, quiz.rounds.findIndex((r) => r.id === id), dir);
+    if (next) setQuiz({ ...quiz, rounds: reindex(next) });
+  };
+
+  const delRound = (id: string) => {
+    const r = quiz.rounds.find((x) => x.id === id);
+    if (!r) return;
+    // Losing six questions to a mis-tap would be miserable.
+    if (r.questions.length > 0 &&
+        !window.confirm(`Delete "${r.title || "this round"}" and its ${r.questions.length} question${r.questions.length === 1 ? "" : "s"}?`)) return;
+    setQuiz({ ...quiz, rounds: reindex(quiz.rounds.filter((x) => x.id !== id)) });
+  };
+
+  const moveQuestion = (rid: string, qid: string, dir: -1 | 1) =>
+    setQuiz({
+      ...quiz,
+      rounds: quiz.rounds.map((r) => {
+        if (r.id !== rid) return r;
+        const next = swap(r.questions, r.questions.findIndex((q) => q.id === qid), dir);
+        return next ? { ...r, questions: reindex(next) } : r;
+      }),
+    });
+
+  const moveTiebreaker = (id: string, dir: -1 | 1) => {
+    const next = swap(quiz.tiebreakers, quiz.tiebreakers.findIndex((t) => t.id === id), dir);
+    if (next) setQuiz({ ...quiz, tiebreakers: reindex(next) });
+  };
+
   const addRound = () =>
     setQuiz({
       ...quiz,
@@ -160,9 +217,22 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
 
         {quiz.rounds.map((r, ri) => (
           <Panel key={r.id} pad={false} title={`Round ${ri + 1}`}
-            right={<button onClick={() => setOpen(open === r.id ? null : r.id)} className="text-xs" style={{ color: C.inkDim }}>
-              {open === r.id ? "Collapse" : "Edit"}
-            </button>}>
+            right={
+              <div className="flex items-center gap-1">
+                <IconBtn label="Move round up" disabled={ri === 0} onClick={() => moveRound(r.id, -1)}>
+                  <ChevronUp size={15} />
+                </IconBtn>
+                <IconBtn label="Move round down" disabled={ri === quiz.rounds.length - 1} onClick={() => moveRound(r.id, 1)}>
+                  <ChevronDown size={15} />
+                </IconBtn>
+                <button onClick={() => setOpen(open === r.id ? null : r.id)} className="text-xs px-1" style={{ color: C.inkDim }}>
+                  {open === r.id ? "Collapse" : "Edit"}
+                </button>
+                <IconBtn label="Delete round" onClick={() => delRound(r.id)}>
+                  <Trash2 size={14} />
+                </IconBtn>
+              </div>
+            }>
             <div className="px-3 py-2 flex items-center gap-2 flex-wrap">
               {roundIcon(r)}
               <input value={r.title} onChange={(e) => patchRound(r.id, { title: e.target.value })}
@@ -257,7 +327,17 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                             </div>
                           )}
                         </div>
-                        <button onClick={() => delQuestion(r.id, q.id)} style={{ color: C.inkDim }}><Trash2 size={14} /></button>
+                        <div className="flex flex-col gap-0.5">
+                          <IconBtn label="Move question up" disabled={qi === 0} onClick={() => moveQuestion(r.id, q.id, -1)}>
+                            <ChevronUp size={14} />
+                          </IconBtn>
+                          <IconBtn label="Move question down" disabled={qi === r.questions.length - 1} onClick={() => moveQuestion(r.id, q.id, 1)}>
+                            <ChevronDown size={14} />
+                          </IconBtn>
+                          <IconBtn label="Delete question" onClick={() => delQuestion(r.id, q.id)}>
+                            <Trash2 size={14} />
+                          </IconBtn>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -269,16 +349,69 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
         ))}
 
         <Panel title="Tiebreakers">
-          <p className="text-xs mb-2" style={{ color: C.inkDim }}>
-            Used only when the top of the leaderboard is tied. Keep a closest-wins question last so it can't tie again.
+          <p className="text-xs mb-3" style={{ color: C.inkDim }}>
+            Only used when the top of the leaderboard is tied, and asked in order until
+            someone wins.
           </p>
-          {quiz.tiebreakers.map((t) => (
-            <div key={t.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 mb-1.5" style={{ background: C.row }}>
-              <Pill tone={t.mode === "closest" ? "biro" : "dim"}>{t.mode}</Pill>
-              <span className="flex-1 truncate text-sm">{t.prompt}</span>
-              <span className="text-sm" style={{ color: C.correct }}>{t.correct}</span>
-            </div>
-          ))}
+
+          <div className="flex flex-col gap-2">
+            {quiz.tiebreakers.map((t, ti) => (
+              <div key={t.id} className="rounded-md p-2" style={{ background: C.row }}>
+                <div className="flex items-start gap-2">
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: C.biroDim, minWidth: 22 }}>{ti + 1}</span>
+                  <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                    <input value={t.prompt} placeholder="Tiebreaker question"
+                      onChange={(e) => patchTiebreaker(t.id, { prompt: e.target.value })}
+                      className="rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.card }} />
+                    <div className="flex flex-wrap gap-1.5">
+                      <input value={t.correct}
+                        placeholder={t.mode === "closest" ? "The number, e.g. 1665" : "Correct answer"}
+                        inputMode={t.mode === "closest" ? "numeric" : "text"}
+                        onChange={(e) => patchTiebreaker(t.id, { correct: e.target.value })}
+                        className="flex-1 min-w-32 rounded border px-2 py-1.5 text-sm"
+                        style={{ ...field, background: C.card, color: C.correct }} />
+                      <select value={t.mode}
+                        onChange={(e) => patchTiebreaker(t.id, { mode: e.target.value as Tiebreaker["mode"] })}
+                        className="rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.card }}>
+                        <option value="closest">Closest wins</option>
+                        <option value="exact">Exact answer</option>
+                      </select>
+                      <input type="number" min={5} value={t.timeLimit}
+                        onChange={(e) => patchTiebreaker(t.id, { timeLimit: Math.max(5, Number(e.target.value) || 30) })}
+                        className="w-16 rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.card }} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <IconBtn label="Move up" disabled={ti === 0} onClick={() => moveTiebreaker(t.id, -1)}>
+                      <ChevronUp size={14} />
+                    </IconBtn>
+                    <IconBtn label="Move down" disabled={ti === quiz.tiebreakers.length - 1} onClick={() => moveTiebreaker(t.id, 1)}>
+                      <ChevronDown size={14} />
+                    </IconBtn>
+                    <IconBtn label="Delete tiebreaker" onClick={() => delTiebreaker(t.id)}>
+                      <Trash2 size={14} />
+                    </IconBtn>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <Btn small onClick={addTiebreaker}><Plus size={13} /> Tiebreaker</Btn>
+          </div>
+
+          {/* Two exact-answer questions can both come back tied, and then
+              you're improvising in front of a room. */}
+          {quiz.tiebreakers.length > 0 && quiz.tiebreakers[quiz.tiebreakers.length - 1].mode !== "closest" && (
+            <p className="mt-3 text-xs rounded-md px-3 py-2"
+              style={{ background: C.warnBg, color: C.ink, border: `1px solid ${C.marker}` }}>
+              Your last tiebreaker is an exact answer, so it can tie again and leave you with
+              no way to separate the teams. Make it closest-wins.
+            </p>
+          )}
+          {quiz.tiebreakers.length === 0 && (
+            <p className="mt-3 text-xs" style={{ color: C.marker }}>
+              With no tiebreakers, a tie for first place can't be resolved in the app.
+            </p>
+          )}
         </Panel>
       </div>
     </div>
@@ -289,5 +422,19 @@ function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 text-center"
       style={{ background: C.page, color: C.inkDim }}>{children}</div>
+  );
+}
+
+/** Small square control. Disabled at the ends of a list rather than hidden,
+    so the row doesn't reflow as you move things around. */
+function IconBtn({ children, onClick, label, disabled }: {
+  children: React.ReactNode; onClick: () => void; label: string; disabled?: boolean;
+}) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} title={label} aria-label={label}
+      className="inline-flex items-center justify-center rounded w-6 h-6"
+      style={{ color: C.inkDim, opacity: disabled ? 0.25 : 1, cursor: disabled ? "default" : "pointer" }}>
+      {children}
+    </button>
   );
 }
