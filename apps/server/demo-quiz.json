@@ -1,0 +1,839 @@
+{
+  "id": "demo-all-formats",
+  "title": "Demo Night — every round type",
+  "updatedAt": 0,
+  "rounds": [
+    {
+      "id": "r1",
+      "order": 0,
+      "title": "True or False",
+      "answerFormat": "yes_no",
+      "mediaType": "none",
+      "timeLimit": 20,
+      "defaultMaxPoints": 1,
+      "questions": [
+        {
+          "id": "q1",
+          "order": 0,
+          "prompt": "Sharks existed before trees did.",
+          "correct": "Yes",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none"
+        },
+        {
+          "id": "q2",
+          "order": 1,
+          "prompt": "The Great Wall of China is visible from space with the naked eye.",
+          "correct": "No",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none"
+        },
+        {
+          "id": "q3",
+          "order": 2,
+          "prompt": "Bananas grow on trees.",
+          "correct": "No",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none"
+        }
+      ]
+    },
+    {
+      "id": "r9",
+      "order": 1,
+      "title": "Multiple Choice",
+      "answerFormat": "choice",
+      "mediaType": "none",
+      "timeLimit": 25,
+      "defaultMaxPoints": 1,
+      "questions": [
+        {
+          "id": "q22",
+          "order": 0,
+          "prompt": "Which of these is a real chemical element?",
+          "correct": "Livermorium",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "options": [
+            "Nautilium",
+            "Livermorium",
+            "Cascadium",
+            "Pellucidium"
+          ]
+        },
+        {
+          "id": "q23",
+          "order": 1,
+          "prompt": "Which country has the most time zones?",
+          "correct": "France",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "options": [
+            "Russia",
+            "United States",
+            "France",
+            "China"
+          ]
+        },
+        {
+          "id": "q24",
+          "order": 2,
+          "prompt": "What does the 'B' in BMW stand for?",
+          "correct": "Bayerische",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "options": [
+            "Bayerische",
+            "Berliner",
+            "Bremer",
+            "Bosch"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "order": 2,
+      "title": "General Knowledge",
+      "answerFormat": "text",
+      "mediaType": "none",
+      "timeLimit": 30,
+      "defaultMaxPoints": 1,
+      "questions": [
+        {
+          "id": "q4",
+          "order": 0,
+          "prompt": "Which element has the chemical symbol W?",
+          "correct": "Tungsten",
+          "accepted": [
+            "wolfram"
+          ],
+          "maxPoints": null,
+          "mediaSource": "none"
+        },
+        {
+          "id": "q5",
+          "order": 1,
+          "prompt": "What is the capital of Australia?",
+          "correct": "Canberra",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none"
+        },
+        {
+          "id": "q6",
+          "order": 2,
+          "prompt": "In which country would you find the city of Timbuktu?",
+          "correct": "Mali",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none"
+        }
+      ],
+      "allowedPowerUps": [
+        "hint"
+      ]
+    },
+    {
+      "id": "r10",
+      "order": 3,
+      "title": "Picture Round",
+      "answerFormat": "text",
+      "mediaType": "image",
+      "timeLimit": 40,
+      "defaultMaxPoints": 1,
+      "questions": [
+        {
+          "id": "q30",
+          "order": 0,
+          "prompt": "Which landmark is this?",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "file",
+          "mediaUrl": ""
+        },
+        {
+          "id": "q31",
+          "order": 1,
+          "prompt": "Name this animal.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "file",
+          "mediaUrl": ""
+        }
+      ],
+      "allowedPowerUps": [
+        "steal"
+      ]
+    },
+    {
+      "id": "r3",
+      "order": 4,
+      "title": "Music Round",
+      "answerFormat": "text",
+      "mediaType": "audio",
+      "timeLimit": 30,
+      "defaultMaxPoints": 2,
+      "questions": [
+        {
+          "id": "q7",
+          "order": 0,
+          "prompt": "Name the artist and the track. One point for each.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 2,
+          "mediaSource": "youtube",
+          "url": "",
+          "clipStart": 0,
+          "clipEnd": 15
+        },
+        {
+          "id": "q8",
+          "order": 1,
+          "prompt": "Name the artist and the track. One point for each.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 2,
+          "mediaSource": "youtube",
+          "url": "",
+          "clipStart": 0,
+          "clipEnd": 15
+        }
+      ],
+      "allowedPowerUps": [
+        "double",
+        "hint"
+      ]
+    },
+    {
+      "id": "r4",
+      "order": 5,
+      "title": "Video Round",
+      "answerFormat": "text",
+      "mediaType": "video",
+      "timeLimit": 30,
+      "defaultMaxPoints": 1,
+      "questions": [
+        {
+          "id": "q9",
+          "order": 0,
+          "prompt": "Name the film.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "youtube",
+          "url": "",
+          "clipStart": 0,
+          "clipEnd": 12
+        }
+      ]
+    },
+    {
+      "id": "r5",
+      "order": 6,
+      "title": "Buzzer — fastest wins",
+      "answerFormat": "fastest",
+      "mediaType": "none",
+      "timeLimit": 30,
+      "defaultMaxPoints": 1,
+      "fastestPoints": 2,
+      "questions": [
+        {
+          "id": "q10",
+          "order": 0,
+          "prompt": "How many keys does a standard piano have?",
+          "correct": "88",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "fastestMode": "closest"
+        },
+        {
+          "id": "q11",
+          "order": 1,
+          "prompt": "How many bones are in the adult human body?",
+          "correct": "206",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "fastestMode": "closest"
+        }
+      ],
+      "bonusRule": "speed"
+    },
+    {
+      "id": "r5b",
+      "order": 7,
+      "title": "Closest wins — no rush",
+      "answerFormat": "fastest",
+      "mediaType": "none",
+      "timeLimit": 30,
+      "defaultMaxPoints": 1,
+      "fastestPoints": 3,
+      "bonusRule": "accuracy",
+      "questions": [
+        {
+          "id": "q20",
+          "order": 0,
+          "prompt": "How many countries are there in Africa?",
+          "correct": "54",
+          "accepted": [],
+          "maxPoints": null,
+          "fastestMode": "closest",
+          "mediaSource": "none"
+        },
+        {
+          "id": "q21",
+          "order": 1,
+          "prompt": "How tall is the Eiffel Tower in metres, to its tip?",
+          "correct": "330",
+          "accepted": [],
+          "maxPoints": null,
+          "fastestMode": "closest",
+          "mediaSource": "none"
+        }
+      ]
+    },
+    {
+      "id": "r6",
+      "order": 8,
+      "title": "Nail, Hair or Wall?",
+      "answerFormat": "sort",
+      "mediaType": "none",
+      "timeLimit": 90,
+      "defaultMaxPoints": 3,
+      "questions": [
+        {
+          "id": "q13",
+          "order": 0,
+          "prompt": "Every one of these is a real shade name. Which is a nail polish, which a hair colour, and which a paint?",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 3,
+          "mediaSource": "none",
+          "categories": [
+            "Nail polish",
+            "Hair colour",
+            "Paint colour"
+          ],
+          "items": [
+            {
+              "word": "Ballet Slippers",
+              "category": "Nail polish"
+            },
+            {
+              "word": "Ash Blonde",
+              "category": "Hair colour"
+            },
+            {
+              "word": "Elephant's Breath",
+              "category": "Paint colour"
+            }
+          ]
+        },
+        {
+          "id": "q14",
+          "order": 1,
+          "prompt": "All three live in water. File them by what they actually are.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 3,
+          "mediaSource": "none",
+          "categories": [
+            "Mammal",
+            "Bird",
+            "Fish"
+          ],
+          "items": [
+            {
+              "word": "Dolphin",
+              "category": "Mammal"
+            },
+            {
+              "word": "Penguin",
+              "category": "Bird"
+            },
+            {
+              "word": "Seahorse",
+              "category": "Fish"
+            }
+          ]
+        }
+      ],
+      "allowedPowerUps": [
+        "double"
+      ]
+    },
+    {
+      "id": "r7",
+      "order": 9,
+      "title": "In Order",
+      "answerFormat": "order",
+      "mediaType": "none",
+      "timeLimit": 60,
+      "defaultMaxPoints": 4,
+      "questions": [
+        {
+          "id": "q15",
+          "order": 0,
+          "prompt": "Put these planets in order of distance from the Sun, closest first.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 4,
+          "mediaSource": "none",
+          "sequence": [
+            "Mercury",
+            "Venus",
+            "Earth",
+            "Mars"
+          ]
+        },
+        {
+          "id": "q16",
+          "order": 1,
+          "prompt": "Put these in chronological order, earliest first.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 4,
+          "mediaSource": "none",
+          "sequence": [
+            "The Moon landing",
+            "The fall of the Berlin Wall",
+            "The first iPhone",
+            "The COVID-19 pandemic declared"
+          ]
+        }
+      ],
+      "allowedPowerUps": [
+        "double"
+      ]
+    },
+    {
+      "id": "r8",
+      "order": 10,
+      "title": "The Hard Round",
+      "answerFormat": "text",
+      "mediaType": "none",
+      "timeLimit": 45,
+      "defaultMaxPoints": 3,
+      "questions": [
+        {
+          "id": "q17",
+          "order": 0,
+          "prompt": "Name the world's only two doubly landlocked countries.",
+          "correct": "Liechtenstein and Uzbekistan",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none"
+        },
+        {
+          "id": "q18",
+          "order": 1,
+          "prompt": "Which country was the first to grant women the vote nationally?",
+          "correct": "New Zealand",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none"
+        },
+        {
+          "id": "q19",
+          "order": 2,
+          "prompt": "Which letter does not appear in the name of any US state?",
+          "correct": "Q",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none"
+        }
+      ],
+      "allowedPowerUps": [
+        "hint",
+        "steal"
+      ]
+    },
+    {
+      "id": "r11",
+      "order": 11,
+      "title": "Name Them",
+      "answerFormat": "list",
+      "mediaType": "none",
+      "timeLimit": 90,
+      "defaultMaxPoints": 5,
+      "questions": [
+        {
+          "id": "q32",
+          "order": 0,
+          "prompt": "Name 5 of the 8 planets in our solar system.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 5,
+          "mediaSource": "none",
+          "requiredCount": 5,
+          "listAnswers": [
+            "Mercury",
+            "Venus",
+            "Earth",
+            "Mars",
+            "Jupiter",
+            "Saturn",
+            "Uranus",
+            "Neptune"
+          ]
+        },
+        {
+          "id": "q33",
+          "order": 1,
+          "prompt": "Name 4 of the 6 Nordic countries and territories.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 4,
+          "mediaSource": "none",
+          "requiredCount": 4,
+          "listAnswers": [
+            "Denmark",
+            "Finland",
+            "Iceland",
+            "Norway",
+            "Sweden",
+            "Greenland"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r12",
+      "order": 12,
+      "title": "Match the Pair",
+      "answerFormat": "match",
+      "mediaType": "none",
+      "timeLimit": 60,
+      "defaultMaxPoints": 4,
+      "questions": [
+        {
+          "id": "q34",
+          "order": 0,
+          "prompt": "Match each author to their novel.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 4,
+          "mediaSource": "none",
+          "pairs": [
+            {
+              "left": "George Orwell",
+              "right": "Animal Farm"
+            },
+            {
+              "left": "Mary Shelley",
+              "right": "Frankenstein"
+            },
+            {
+              "left": "Bram Stoker",
+              "right": "Dracula"
+            },
+            {
+              "left": "Harper Lee",
+              "right": "To Kill a Mockingbird"
+            }
+          ]
+        },
+        {
+          "id": "q35",
+          "order": 1,
+          "prompt": "Match each country to its currency.",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 4,
+          "mediaSource": "none",
+          "pairs": [
+            {
+              "left": "Japan",
+              "right": "Yen"
+            },
+            {
+              "left": "Poland",
+              "right": "Zloty"
+            },
+            {
+              "left": "India",
+              "right": "Rupee"
+            },
+            {
+              "left": "Turkey",
+              "right": "Lira"
+            }
+          ]
+        }
+      ],
+      "allowedPowerUps": [
+        "double"
+      ]
+    },
+    {
+      "id": "r13",
+      "order": 13,
+      "title": "Wipeout — wrong answers cost you",
+      "answerFormat": "choice",
+      "mediaType": "none",
+      "timeLimit": 20,
+      "defaultMaxPoints": 2,
+      "penaltyForWrong": 1,
+      "rapidFire": true,
+      "questions": [
+        {
+          "id": "q36",
+          "order": 0,
+          "prompt": "Which is the largest ocean?",
+          "correct": "Pacific",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "options": [
+            "Atlantic",
+            "Pacific",
+            "Indian",
+            "Arctic"
+          ]
+        },
+        {
+          "id": "q37",
+          "order": 1,
+          "prompt": "Which is the smallest country by area?",
+          "correct": "Vatican City",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "options": [
+            "Monaco",
+            "Nauru",
+            "Vatican City",
+            "San Marino"
+          ]
+        },
+        {
+          "id": "q38",
+          "order": 2,
+          "prompt": "Which planet has the shortest day?",
+          "correct": "Jupiter",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "options": [
+            "Mercury",
+            "Mars",
+            "Jupiter",
+            "Neptune"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r14",
+      "order": 14,
+      "title": "Guess Your Nominee",
+      "answerFormat": "nominee",
+      "mediaType": "none",
+      "timeLimit": 45,
+      "defaultMaxPoints": 2,
+      "questions": [
+        {
+          "id": "q40",
+          "order": 0,
+          "prompt": "What would {nominee} order at the bar?",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 2,
+          "mediaSource": "none"
+        },
+        {
+          "id": "q41",
+          "order": 1,
+          "prompt": "Where did {nominee} last go on holiday?",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 2,
+          "mediaSource": "none"
+        },
+        {
+          "id": "q42",
+          "order": 2,
+          "prompt": "What is {nominee}'s worst habit?",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 2,
+          "mediaSource": "none"
+        }
+      ]
+    },
+    {
+      "id": "r15",
+      "order": 15,
+      "title": "Clue by Clue",
+      "answerFormat": "clues",
+      "mediaType": "none",
+      "timeLimit": 90,
+      "defaultMaxPoints": 5,
+      "allowedPowerUps": [],
+      "questions": [
+        {
+          "id": "q50",
+          "order": 0,
+          "prompt": "Who is being described?",
+          "correct": "Marie Curie",
+          "accepted": [],
+          "maxPoints": 5,
+          "mediaSource": "none",
+          "clues": [
+            "Born in Warsaw in 1867.",
+            "Moved to Paris to study at the Sorbonne.",
+            "Discovered two elements, one named after her homeland.",
+            "The first person to win Nobel Prizes in two different sciences.",
+            "Her notebooks are still too radioactive to handle safely."
+          ]
+        },
+        {
+          "id": "q51",
+          "order": 1,
+          "prompt": "Which city?",
+          "correct": "Venice",
+          "accepted": [],
+          "maxPoints": 5,
+          "mediaSource": "none",
+          "clues": [
+            "Built across more than a hundred small islands.",
+            "It has no roads in its historic centre.",
+            "Its opera house is called La Fenice.",
+            "Home to the Rialto and the Bridge of Sighs.",
+            "St Mark's Square floods most winters."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r16",
+      "order": 16,
+      "title": "Tick All That Apply",
+      "answerFormat": "choice",
+      "mediaType": "none",
+      "timeLimit": 40,
+      "defaultMaxPoints": 3,
+      "allowedPowerUps": [
+        "hint"
+      ],
+      "questions": [
+        {
+          "id": "q52",
+          "order": 0,
+          "prompt": "Which of these are landlocked countries?",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 3,
+          "mediaSource": "none",
+          "multi": true,
+          "options": [
+            "Bolivia",
+            "Portugal",
+            "Nepal",
+            "Austria",
+            "Vietnam"
+          ],
+          "correctOptions": [
+            "Bolivia",
+            "Nepal",
+            "Austria"
+          ]
+        },
+        {
+          "id": "q53",
+          "order": 1,
+          "prompt": "Which of these are noble gases?",
+          "correct": "",
+          "accepted": [],
+          "maxPoints": 3,
+          "mediaSource": "none",
+          "multi": true,
+          "options": [
+            "Helium",
+            "Nitrogen",
+            "Argon",
+            "Neon",
+            "Oxygen"
+          ],
+          "correctOptions": [
+            "Helium",
+            "Argon",
+            "Neon"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r17",
+      "order": 17,
+      "title": "Stake Your Claim",
+      "answerFormat": "choice",
+      "mediaType": "none",
+      "timeLimit": 30,
+      "defaultMaxPoints": 1,
+      "wager": true,
+      "maxWager": 5,
+      "allowedPowerUps": [],
+      "questions": [
+        {
+          "id": "q54",
+          "order": 0,
+          "prompt": "Which of these is the longest river?",
+          "correct": "Nile",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "options": [
+            "Amazon",
+            "Nile",
+            "Yangtze",
+            "Mississippi"
+          ]
+        },
+        {
+          "id": "q55",
+          "order": 1,
+          "prompt": "In which year did the Berlin Wall fall?",
+          "correct": "1989",
+          "accepted": [],
+          "maxPoints": null,
+          "mediaSource": "none",
+          "options": [
+            "1987",
+            "1989",
+            "1991",
+            "1993"
+          ]
+        }
+      ]
+    }
+  ],
+  "tiebreakers": [
+    {
+      "id": "t1",
+      "order": 0,
+      "mode": "exact",
+      "timeLimit": 30,
+      "prompt": "Which US state can be typed using only the home row of a QWERTY keyboard?",
+      "correct": "Alaska"
+    },
+    {
+      "id": "t2",
+      "order": 1,
+      "mode": "closest",
+      "timeLimit": 30,
+      "prompt": "How many steps lead to the very top of the Eiffel Tower?",
+      "correct": "1665"
+    }
+  ]
+}

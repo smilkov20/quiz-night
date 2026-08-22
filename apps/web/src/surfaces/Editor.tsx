@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2, Check, AlertTriangle, Timer as TimerIcon, Play, Download, Upload, ChevronUp, ChevronDown } from "lucide-react";
-import type { Quiz, Question, Round, Tiebreaker } from "@quiz/shared";
+import type { Quiz, Question, Round, Tiebreaker, PowerUp } from "@quiz/shared";
+import { POWER_UP_LABELS } from "@quiz/shared";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Btn, Eyebrow, Panel, Pill, useConfirm } from "../ui/kit";
 import { apiFetch, ApiError } from "../useQuizSocket";
@@ -284,9 +285,14 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                       className="rounded-md border px-2 py-1.5 text-sm" style={field}>
                       <option value="text">Open text</option>
                       <option value="yes_no">Yes / No</option>
+                      <option value="choice">Multiple choice (A/B/C/D)</option>
                       <option value="fastest">Fastest wins</option>
                       <option value="sort">Sort into categories</option>
                       <option value="order">Put in order</option>
+                      <option value="list">Name N of M</option>
+                      <option value="match">Match pairs</option>
+                      <option value="nominee">Guess your nominee</option>
+                      <option value="clues">Progressive clues</option>
                     </select>
                   </label>
                   <label className="flex flex-col gap-1">
@@ -305,7 +311,8 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                       onChange={(e) => patchRound(r.id, { timeLimit: Number(e.target.value) || 0 })}
                       className="rounded-md border px-2 py-1.5 text-sm" style={field} />
                   </label>
-                  <label className="flex flex-col gap-1">
+                  <label className="flex flex-col gap-1"
+                    style={{ opacity: r.answerFormat === "fastest" && r.bonusRule === "accuracy" ? 0.4 : 1 }}>
                     <Eyebrow>{r.answerFormat === "fastest" ? "Correct" : "Points"}</Eyebrow>
                     <input type="number" value={r.defaultMaxPoints}
                       onChange={(e) => patchRound(r.id, { defaultMaxPoints: Number(e.target.value) || 1 })}
@@ -313,13 +320,75 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                   </label>
                   {r.answerFormat === "fastest" && (
                     <label className="flex flex-col gap-1">
-                      <Eyebrow>Fastest</Eyebrow>
+                      <Eyebrow>{(r.bonusRule ?? "speed") === "speed" ? "Fastest" : "Best answer"}</Eyebrow>
                       <input type="number" value={r.fastestPoints ?? r.defaultMaxPoints + 1}
                         onChange={(e) => patchRound(r.id, { fastestPoints: Number(e.target.value) || 1 })}
                         className="rounded-md border px-2 py-1.5 text-sm" style={{ ...field, color: C.biro }} />
                     </label>
                   )}
                 </div>
+
+                <div className="mb-3 rounded-md p-2" style={{ background: C.row }}>
+                  <Eyebrow>Power-ups teams may spend on this round</Eyebrow>
+                  <div className="flex flex-wrap gap-3 mt-1">
+                    {(["double", "steal", "hint"] as PowerUp[]).map((p) => (
+                      <label key={p} className="flex items-center gap-1.5 text-sm">
+                        <input type="checkbox"
+                          checked={Boolean(r.allowedPowerUps?.includes(p))}
+                          onChange={(e) => patchRound(r.id, {
+                            allowedPowerUps: e.target.checked
+                              ? [...(r.allowedPowerUps ?? []), p]
+                              : (r.allowedPowerUps ?? []).filter((x) => x !== p),
+                          })} />
+                        {POWER_UP_LABELS[p].name}
+                        <span style={{ color: C.inkDim }}>— {POWER_UP_LABELS[p].blurb}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-3 flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={Boolean(r.rapidFire)}
+                      onChange={(e) => patchRound(r.id, { rapidFire: e.target.checked })} />
+                    Rapid fire — one clock for the whole round
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={Boolean(r.wager)}
+                      onChange={(e) => patchRound(r.id, { wager: e.target.checked, maxWager: r.maxWager ?? 5 })} />
+                    Wager — stake before seeing the question, up to
+                    <input type="number" min={1} value={r.maxWager ?? 5} disabled={!r.wager}
+                      onChange={(e) => patchRound(r.id, { maxWager: Math.max(1, Number(e.target.value) || 5) })}
+                      className="w-14 rounded border px-1 py-0.5 text-sm disabled:opacity-40" style={field} />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm"
+                    title="Only applied to rounds the app marks itself">
+                    <input type="checkbox" checked={(r.penaltyForWrong ?? 0) > 0}
+                      onChange={(e) => patchRound(r.id, { penaltyForWrong: e.target.checked ? 1 : 0 })} />
+                    Wipeout — a wrong answer costs
+                    <input type="number" min={1} value={r.penaltyForWrong || 1}
+                      disabled={(r.penaltyForWrong ?? 0) === 0}
+                      onChange={(e) => patchRound(r.id, { penaltyForWrong: Math.max(1, Number(e.target.value) || 1) })}
+                      className="w-14 rounded border px-1 py-0.5 text-sm disabled:opacity-40" style={field} />
+                  </label>
+                </div>
+
+                {r.answerFormat === "fastest" && (
+                  <div className="mb-3 rounded-md p-2" style={{ background: C.row }}>
+                    <Eyebrow>Who gets the higher points</Eyebrow>
+                    <select value={r.bonusRule ?? "speed"}
+                      onChange={(e) => patchRound(r.id, { bonusRule: e.target.value as "speed" | "accuracy" })}
+                      className="w-full rounded-md border px-2 py-1.5 text-sm" style={{ ...field, background: C.card }}>
+                      <option value="speed">Only the fastest correct team</option>
+                      <option value="accuracy">Everyone with the best answer</option>
+                    </select>
+                    <p className="text-xs mt-1" style={{ color: C.inkDim }}>
+                      {(r.bonusRule ?? "speed") === "speed"
+                        ? `Everyone right scores ${r.defaultMaxPoints}; whoever got in first scores ${r.fastestPoints ?? r.defaultMaxPoints + 1} instead.`
+                        : `Every team with the best answer scores ${r.fastestPoints ?? r.defaultMaxPoints + 1}, however long they took. Speed is ignored.`}
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2">
                   {r.questions.map((q, qi) => (
@@ -352,6 +421,10 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                             </div>
                           )}
 
+                          {r.answerFormat === "choice" && (
+                            <ChoiceEditor question={q} onPatch={(patch) => patchQuestion(r.id, q.id, patch)} field={field} />
+                          )}
+
                           {r.answerFormat === "order" && (
                             <OrderEditor question={q} onPatch={(patch) => patchQuestion(r.id, q.id, patch)} field={field} />
                           )}
@@ -360,7 +433,60 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                             <SortEditor question={q} onPatch={(patch) => patchQuestion(r.id, q.id, patch)} field={field} />
                           )}
 
-                          {r.mediaType !== "none" && (
+                          {r.answerFormat === "clues" && (
+                            <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
+                              <Eyebrow>Clues, hardest first</Eyebrow>
+                              <textarea rows={4} value={(q.clues ?? []).join("\n")}
+                                placeholder={"Born in 1928\nKnown for pop art\nPainted soup cans"}
+                                onChange={(e) => patchQuestion(r.id, q.id, { clues: e.target.value.split("\n").map((x) => x.trim()).filter(Boolean) })}
+                                className="rounded border px-2 py-1.5 text-sm resize-y" style={{ ...field, background: C.page }} />
+                              <p className="text-xs" style={{ color: C.inkDim }}>
+                                First clue is free. Worth {q.maxPoints ?? r.defaultMaxPoints} after clue one,
+                                dropping by one per clue, never below one.
+                              </p>
+                            </div>
+                          )}
+
+                          {r.answerFormat === "choice" && (
+                            <label className="flex items-center gap-2 text-xs" style={{ color: C.inkDim }}>
+                              <input type="checkbox" checked={Boolean(q.multi)}
+                                onChange={(e) => patchQuestion(r.id, q.id, {
+                                  multi: e.target.checked,
+                                  correctOptions: e.target.checked ? (q.correct ? [q.correct] : []) : undefined,
+                                })} />
+                              More than one right answer
+                            </label>
+                          )}
+
+                          {r.answerFormat === "nominee" && (
+                            <p className="text-xs rounded px-2 py-1.5" style={{ background: C.row, color: C.inkDim }}>
+                              No answer needed — the nominee supplies it live. Write {"{nominee}"}
+                              in the question and each team sees their own nominee's name.
+                            </p>
+                          )}
+
+                          {r.answerFormat === "list" && (
+                            <ListEditor question={q} onPatch={(patch) => patchQuestion(r.id, q.id, patch)} field={field} />
+                          )}
+
+                          {r.answerFormat === "match" && (
+                            <MatchEditor question={q} onPatch={(patch) => patchQuestion(r.id, q.id, patch)} field={field} />
+                          )}
+
+                          {r.mediaType === "image" && (
+                            <div className="flex flex-col gap-1 rounded p-2" style={{ background: C.card }}>
+                              <Eyebrow>Image link</Eyebrow>
+                              <input value={q.mediaUrl ?? ""} placeholder="https://…/picture.jpg"
+                                onChange={(e) => patchQuestion(r.id, q.id, { mediaUrl: e.target.value, mediaSource: "file" })}
+                                className="rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.page }} />
+                              {q.mediaUrl && (
+                                <img src={q.mediaUrl} alt="" className="mt-1 rounded"
+                                  style={{ maxHeight: 120, objectFit: "contain", border: `1px solid ${C.rule}` }} />
+                              )}
+                            </div>
+                          )}
+
+                          {r.mediaType !== "none" && r.mediaType !== "image" && (
                             <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
                               <div className="flex items-center gap-1.5">
                                 <input value={q.url ?? ""} placeholder="Paste a YouTube link"
@@ -487,6 +613,142 @@ function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 text-center"
       style={{ background: C.page, color: C.inkDim }}>{children}</div>
+  );
+}
+
+/** The pool is the full answer set; requiredCount is how many to ask for. */
+function ListEditor({ question, onPatch, field }: {
+  question: Question;
+  onPatch: (patch: Partial<Question>) => void;
+  field: React.CSSProperties;
+}) {
+  const pool = question.listAnswers ?? [];
+  const asked = question.requiredCount ?? pool.length;
+  return (
+    <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
+      <Eyebrow>Every acceptable answer, one per line</Eyebrow>
+      <textarea rows={4} value={pool.join("\n")}
+        placeholder={"Kenya\nUganda\nTanzania"}
+        onChange={(e) => onPatch({ listAnswers: e.target.value.split("\n").map((x) => x.trim()).filter(Boolean) })}
+        className="rounded border px-2 py-1.5 text-sm resize-y" style={{ ...field, background: C.page }} />
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs" style={{ color: C.inkDim }}>Ask teams to name</span>
+        <input type="number" min={1} max={Math.max(1, pool.length)} value={asked}
+          onChange={(e) => onPatch({ requiredCount: Math.max(1, Number(e.target.value) || 1) })}
+          className="w-16 rounded border px-2 py-1 text-sm" style={{ ...field, background: C.page }} />
+        <span className="text-xs" style={{ color: C.inkDim }}>of {pool.length}</span>
+      </div>
+      {asked > pool.length && pool.length > 0 && (
+        <p className="text-xs" style={{ color: C.marker }}>
+          You're asking for more than you've listed.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Left items keep their order; right items are shuffled for teams. */
+function MatchEditor({ question, onPatch, field }: {
+  question: Question;
+  onPatch: (patch: Partial<Question>) => void;
+  field: React.CSSProperties;
+}) {
+  const pairs = question.pairs ?? [];
+  const set = (i: number, patch: Partial<{ left: string; right: string }>) =>
+    onPatch({ pairs: pairs.map((p, n) => (n === i ? { ...p, ...patch } : p)) });
+  return (
+    <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
+      <Eyebrow>Pairs</Eyebrow>
+      {pairs.map((p, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <input value={p.left} placeholder="e.g. Orwell"
+            onChange={(e) => set(i, { left: e.target.value })}
+            className="flex-1 min-w-0 rounded border px-2 py-1 text-sm" style={{ ...field, background: C.page }} />
+          <span style={{ color: C.inkDim }}>→</span>
+          <input value={p.right} placeholder="e.g. 1984"
+            onChange={(e) => set(i, { right: e.target.value })}
+            className="flex-1 min-w-0 rounded border px-2 py-1 text-sm"
+            style={{ ...field, background: C.page, color: C.correct }} />
+          <button onClick={() => onPatch({ pairs: pairs.filter((_, n) => n !== i) })}
+            style={{ color: C.inkDim }}><Trash2 size={13} /></button>
+        </div>
+      ))}
+      <button onClick={() => onPatch({ pairs: [...pairs, { left: "", right: "" }] })}
+        className="self-start rounded border px-2 py-1 text-xs"
+        style={{ borderColor: C.rule, color: C.ink, fontWeight: 600 }}>
+        + Pair
+      </button>
+      <p className="text-xs" style={{ color: C.inkDim }}>
+        Teams see the right-hand side shuffled. One point per correct pair.
+      </p>
+    </div>
+  );
+}
+
+/** Options keep their order for everyone — the host reads them out as A, B,
+    C, D, so shuffling per team would make the round impossible to run. */
+function ChoiceEditor({ question, onPatch, field }: {
+  question: Question;
+  onPatch: (patch: Partial<Question>) => void;
+  field: React.CSSProperties;
+}) {
+  const options = question.options ?? [];
+  const set = (i: number, v: string) => {
+    const next = options.map((x, n) => (n === i ? v : x));
+    // Keep `correct` pointing at the same option as it's renamed.
+    const patch: Partial<Question> = { options: next };
+    if (question.correct === options[i]) patch.correct = v;
+    onPatch(patch);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded p-2" style={{ background: C.card }}>
+      <Eyebrow>Options — tick the right one</Eyebrow>
+      {options.map((opt, i) => {
+        const isCorrect = opt !== "" && (question.multi
+          ? (question.correctOptions ?? []).includes(opt)
+          : question.correct === opt);
+        return (
+          <div key={i} className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                if (!question.multi) return onPatch({ correct: opt });
+                const set = question.correctOptions ?? [];
+                onPatch({ correctOptions: set.includes(opt) ? set.filter((x) => x !== opt) : [...set, opt] });
+              }}
+              title={question.multi ? "Toggle as a correct answer" : "Mark as correct"}
+              className="inline-flex items-center justify-center rounded-full shrink-0"
+              style={{
+                width: 26, height: 26,
+                background: isCorrect ? C.correct : C.row,
+                color: isCorrect ? C.onInk : C.inkDim,
+                fontFamily: FONT_DISPLAY, fontSize: 14,
+              }}>
+              {String.fromCharCode(65 + i)}
+            </button>
+            <input value={opt} placeholder={`Option ${String.fromCharCode(65 + i)}`}
+              onChange={(e) => set(i, e.target.value)}
+              className="flex-1 min-w-0 rounded border px-2 py-1 text-sm"
+              style={{ ...field, background: C.page, color: isCorrect ? C.correct : C.ink }} />
+            <button onClick={() => onPatch({ options: options.filter((_, n) => n !== i) })}
+              style={{ color: C.inkDim }}><Trash2 size={13} /></button>
+          </div>
+        );
+      })}
+      <button onClick={() => onPatch({ options: [...options, ""] })}
+        disabled={options.length >= 6}
+        className="self-start rounded border px-2 py-1 text-xs disabled:opacity-40"
+        style={{ borderColor: C.rule, color: C.ink, fontWeight: 600 }}>
+        + Option
+      </button>
+      {options.length > 0 && (question.multi
+        ? (question.correctOptions ?? []).length === 0
+        : !options.includes(question.correct)) && (
+        <p className="text-xs" style={{ color: C.marker }}>
+          {question.multi ? "Tick at least one correct option." : "No option is marked correct — tap a letter."}
+        </p>
+      )}
+    </div>
   );
 }
 

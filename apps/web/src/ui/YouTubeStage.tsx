@@ -35,7 +35,7 @@ export const clipLen = (q: Pick<Question, "clipStart" | "clipEnd">) =>
  * missed event would mean the clock never starts in front of a full room.
  */
 export function YouTubeStage({
-  question, playing, coverPicture, onEnded, size, muted = false,
+  question, playing, coverPicture, onEnded, size, muted = false, onNeedsUnlock,
 }: {
   question: Question | null;
   playing: boolean;
@@ -46,6 +46,8 @@ export function YouTubeStage({
   /** The host's monitor is silent — only one surface may make noise, or the
       room hears the clip twice, slightly out of sync. */
   muted?: boolean;
+  /** Presenter only: lets the surface show an unlock prompt. */
+  onNeedsUnlock?: (unlock: () => void, needed: boolean) => void;
 }) {
   const player = useRef<any>(null);
   const [ready, setReady] = useState(false);
@@ -103,6 +105,26 @@ export function YouTubeStage({
   useEffect(() => {
     if (!playing) player.current?.stopVideo?.();
   }, [playing]);
+
+  /* A browser will not play audio in a window that has never been clicked.
+     The host presses Play on their console, which is a different window from
+     the projector — so without this the room hears nothing. A single tap on
+     the presenter, once, satisfies the gesture requirement for the night. */
+  useEffect(() => {
+    if (!onNeedsUnlock || muted || !ready) return;
+    const unlock = () => {
+      const p = player.current;
+      if (!p) return;
+      try {
+        p.mute?.();
+        p.playVideo?.();
+        p.pauseVideo?.();
+        p.unMute?.();
+      } catch { /* nothing loaded yet, which is fine */ }
+      onNeedsUnlock(unlock, false);
+    };
+    onNeedsUnlock(unlock, true);
+  }, [ready, muted, onNeedsUnlock]);
 
   const geometry =
     size === "projector"

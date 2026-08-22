@@ -106,12 +106,24 @@ const server = createServer(async (req, res) => {
     }
   }
 
+  /* Open, because the join code is the only secret and the nominee needs to
+     pick which team they belong to. */
+  if (url.pathname === "/api/teams" && req.method === "GET") {
+    const room = rooms.get((url.searchParams.get("code") ?? "").toUpperCase());
+    if (!room) return send(res, 404, { error: "No such room" }, origin);
+    return send(res, 200, room.session.teams.map((t) => ({
+      id: t.id, name: t.name, hasNominee: Boolean(t.nomineeName),
+    })), origin);
+  }
+
   if (url.pathname === "/api/join" && req.method === "POST") {
     try {
-      const { code, name, token } = await readJson<{ code: string; name: string; token?: string }>(req);
+      const { code, name, token, asNomineeFor } = await readJson<{ code: string; name: string; token?: string; asNomineeFor?: string }>(req);
       const room = rooms.get((code ?? "").toUpperCase());
       if (!room) return send(res, 404, { error: "No room with that code" }, origin);
-      const result = room.join(name ?? "", token ?? null);
+      const result = asNomineeFor
+        ? room.joinAsNominee(asNomineeFor, name ?? "")
+        : room.join(name ?? "", token ?? null);
       return "error" in result ? send(res, 400, result, origin) : send(res, 200, result, origin);
     } catch (e) {
       return send(res, 400, { error: (e as Error).message }, origin);

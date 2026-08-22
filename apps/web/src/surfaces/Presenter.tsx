@@ -1,3 +1,4 @@
+import { describeAnswer } from "@quiz/shared";
 import { useEffect, useState } from "react";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Countdown, Leaderboard } from "../ui/kit";
@@ -13,6 +14,9 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
     const id = setInterval(() => setTick((n) => n + 1), 100);
     return () => clearInterval(id);
   }, []);
+
+  const [unlockFn, setUnlockFn] = useState<null | (() => void)>(null);
+  const hasMedia = snapshot?.session.quiz.rounds.some((r) => r.mediaType === "audio" || r.mediaType === "video");
 
   if (fatal) {
     return (
@@ -42,7 +46,23 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
         coverPicture={round?.mediaType === "audio"}
         onEnded={() => send({ type: "media_ended" })}
         size={playing ? "projector" : "hidden"}
+        onNeedsUnlock={(unlock, needed) => setUnlockFn(() => (needed ? unlock : null))}
       />
+
+      {unlockFn && hasMedia && (
+        <button
+          onClick={() => { unlockFn(); setUnlockFn(null); }}
+          className="fixed inset-0 z-40 flex flex-col items-center justify-center"
+          style={{ background: "rgba(21,35,79,0.92)", color: C.onInk }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: "clamp(28px,5vw,56px)", letterSpacing: "-0.02em" }}>
+            Tap to enable sound
+          </div>
+          <p className="mt-3 text-lg" style={{ opacity: 0.8 }}>
+            Once, before the guests arrive. Browsers won't play audio in a window
+            nobody has clicked.
+          </p>
+        </button>
+      )}
       <Shell>
         {s.state === "lobby" && (
           <>
@@ -69,7 +89,7 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
               </div>
             ) : (
               <p style={{ fontSize: playing ? "clamp(17px,2.2vw,26px)" : "clamp(26px,4.4vw,52px)", fontWeight: 600, lineHeight: 1.15 }}>
-                {question.prompt}
+                {round.wager && s.phase === "revealed" ? "Place your stakes" : question.prompt}
               </p>
             )}
             {playing && (
@@ -77,6 +97,44 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
                 {round.mediaType === "audio" ? "Listen" : "Watch"} · {Math.ceil(Math.max(0, mediaLeft))}s
               </p>
             )}
+            {round.answerFormat === "clues" && s.phase !== "idle" && (
+              <ol className="mt-8 flex flex-col gap-2 text-left max-w-3xl mx-auto">
+                {(question.clues ?? []).slice(0, s.cluesShown).map((clue, i) => (
+                  <li key={i} className="rounded-xl px-4 py-3"
+                    style={{
+                      background: i === s.cluesShown - 1 ? C.high : C.card,
+                      border: `2px solid ${C.rule}`,
+                      fontSize: "clamp(16px,2vw,26px)", fontWeight: 600,
+                    }}>
+                    {i + 1}. {clue}
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {round.mediaType === "image" && question.mediaUrl && s.phase !== "idle" && (
+              <img src={question.mediaUrl} alt=""
+                className="mt-6 mx-auto rounded-xl"
+                style={{ maxHeight: "52vh", maxWidth: "100%", objectFit: "contain",
+                         border: `2px solid ${C.ink}` }} />
+            )}
+
+            {round.answerFormat === "choice" && s.phase !== "idle" && (
+              <div className="mt-8 grid gap-3 sm:grid-cols-2 text-left max-w-3xl mx-auto">
+                {(question.options ?? []).map((opt, i) => (
+                  <div key={opt} className="flex items-center gap-3 rounded-xl px-4 py-3"
+                    style={{ background: C.card, border: `2px solid ${C.rule}` }}>
+                    <span className="inline-flex items-center justify-center rounded-full shrink-0"
+                      style={{ width: 40, height: 40, background: C.row, color: C.biro,
+                               fontFamily: FONT_DISPLAY, fontSize: 22 }}>
+                      {String.fromCharCode(65 + i)}
+                    </span>
+                    <span style={{ fontWeight: 600, fontSize: "clamp(16px,1.8vw,24px)" }}>{opt}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {s.phase === "answering" && remaining > 0 && (
               <div className="mt-10 flex justify-center">
                 <Countdown remaining={remaining} total={round.timeLimit} size="lg" />
@@ -122,7 +180,7 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
               {s.quiz.rounds[s.reviewRound].questions.map((q, i) => (
                 <li key={q.id} className="rounded-md px-3 py-2.5" style={{ background: C.row }}>
                   <div className="text-sm" style={{ color: C.inkDim }}>{i + 1}. {q.prompt}</div>
-                  <div style={{ color: C.biro, fontWeight: 700, fontSize: 22 }}>{q.correct}</div>
+                  <div style={{ color: C.biro, fontWeight: 700, fontSize: 22 }}>{describeAnswer(s.quiz.rounds[s.reviewRound!], q) || "—"}</div>
                 </li>
               ))}
             </ol>

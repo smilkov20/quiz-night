@@ -10,7 +10,18 @@ export type AnswerFormat =
   /** Teams file a list of words into categories. */
   | "sort"
   /** Teams put items into a sequence: first, second, third. */
-  | "order";
+  | "order"
+  /** Multiple choice: A, B, C, D. */
+  | "choice"
+  /** "Name 7 of the 13…" — several answers from a known pool. */
+  | "list"
+  /** One-to-one pairing: author to book, capital to country. */
+  | "match"
+  /** One team member answers on their own phone; the rest guess what they
+      said. The nominee is the answer key, so there is no "correct" answer. */
+  | "nominee"
+  /** Clues revealed one at a time; the longer you wait, the less it's worth. */
+  | "clues";
 export type MediaType = "none" | "audio" | "video" | "image";
 export type MediaSource = "none" | "youtube" | "file";
 
@@ -30,6 +41,18 @@ export interface Question {
   items?: { word: string; category: string }[];
   /** order: the items in their correct sequence. Never shown in this order. */
   sequence?: string[];
+  /** choice: the options, shown as A/B/C/D in this order for everyone. */
+  options?: string[];
+  /** choice: more than one right answer. `correctOptions` replaces `correct`. */
+  multi?: boolean;
+  correctOptions?: string[];
+  /** clues: revealed in order, on the host's cue. */
+  clues?: string[];
+  /** list: the full pool of acceptable answers, and how many to name. */
+  listAnswers?: string[];
+  requiredCount?: number;
+  /** match: the correct pairings. Right-hand items are shuffled for teams. */
+  pairs?: { left: string; right: string }[];
   mediaSource: MediaSource;
   /** YouTube URL or id, when mediaSource is "youtube" */
   url?: string;
@@ -47,9 +70,25 @@ export interface Round {
   mediaType: MediaType;
   timeLimit: number;
   defaultMaxPoints: number;
-  /** fastest rounds: what the first correct answer is worth. Everyone else
-      who was right gets defaultMaxPoints. */
+  /** fastest rounds: the higher award. Who receives it depends on bonusRule. */
   fastestPoints?: number;
+  /** fastest rounds: what earns the higher award.
+      "speed"    — everyone right gets defaultMaxPoints, the first of them
+                   gets fastestPoints instead.
+      "accuracy" — everyone with the best answer gets fastestPoints, however
+                   long they took. */
+  bonusRule?: "speed" | "accuracy";
+  /** Wipeout rounds: what a wrong answer costs. Only applied to formats the
+      server marks itself, so nobody loses points to a marking judgement. */
+  penaltyForWrong?: number;
+  /** One clock for the whole round instead of one per question. */
+  rapidFire?: boolean;
+  /** Teams stake points before the question is shown. */
+  wager?: boolean;
+  maxWager?: number;
+  /** Which power-ups teams may spend on this round. Empty or absent means
+      none — the host opts each round in. */
+  allowedPowerUps?: PowerUp[];
   questions: Question[];
 }
 
@@ -76,7 +115,32 @@ export interface Team {
   name: string;
   connected: boolean;
   lastSeen: number;
+  /** Index of the round this team doubled, if they've spent that power-up. */
+  jokerRound?: number | null;
+  /** Each power-up is once per game. Records where it was spent. */
+  usedPowerUps?: Partial<Record<PowerUp, PowerUpUse>>;
+  /** Set once someone joins as this team's nominee, on their own device. */
+  nomineeName?: string | null;
+  /** Host has released the name so a replacement device can claim it — for
+      when a phone dies mid-quiz. */
+  awaitingRelink?: boolean;
 }
+
+export type PowerUp = "double" | "steal" | "hint";
+
+export interface PowerUpUse {
+  roundIdx: number;
+  questionId?: string;
+  /** steal: whose answer was taken. */
+  targetTeamId?: string;
+  at: number;
+}
+
+export const POWER_UP_LABELS: Record<PowerUp, { name: string; blurb: string }> = {
+  double: { name: "Double", blurb: "One round counts twice" },
+  steal: { name: "Steal", blurb: "See another team's answer" },
+  hint: { name: "Hint", blurb: "Reveal the first letter" },
+};
 
 export interface Answer {
   /** For sort rounds this is JSON: { [word]: category }. */
@@ -84,6 +148,8 @@ export interface Answer {
   /** For fastest rounds this is the commit time and never moves, because the
       server refuses to overwrite an existing answer. */
   submittedAt: number;
+  /** clues rounds: how many clues were showing when this was committed. */
+  atClue?: number;
   /** null means ungraded. Grader awards 0..maxPoints. */
   points: number | null;
 }
@@ -126,6 +192,16 @@ export interface Session {
   teams: Team[];
   /** keyed `${teamId}:${questionId}` */
   answers: Record<string, Answer>;
+  /** Nominee rounds: what the nominee actually said, same key. Kept apart from
+      `answers` so a team's own device can never be sent it. */
+  nomineeAnswers: Record<string, Answer>;
+  /** Wager rounds: what each team staked, keyed `${teamId}:${questionId}`. */
+  wagers: Record<string, number>;
+  /** What a spent power-up revealed, keyed `${teamId}:${questionId}`. Private
+      to that team, so it's redacted from everyone else's snapshot. */
+  reveals: Record<string, { hint?: string; steal?: { from: string; value: string } }>;
+  /** clues rounds: how many clues are showing for the current question. */
+  cluesShown: number;
   tiebreakIdx: number;
   tiebreakTeams: string[];
   tiebreakAnswers: Record<string, string>;
@@ -166,12 +242,16 @@ export const normalise = (s: string): string =>
 export function computeStandings(session: Session): Standing[] {
   const rows = session.teams.map((t) => {
     let score = 0;
-    for (const round of session.quiz.rounds) {
+    session.quiz.rounds.forEach((round, roundIdx) => {
+      let roundScore = 0;
       for (const q of round.questions) {
         const a = session.answers[answerKey(t.id, q.id)];
-        if (a && a.points != null) score += a.points;
+        if (a && a.points != null) roundScore += a.points;
       }
-    }
+      // The joker doubles a whole round, which is the point of nominating one.
+      if (t.jokerRound === roundIdx) roundScore *= 2;
+      score += roundScore;
+    });
     return { teamId: t.id, name: t.name, score, rank: 0 };
   });
   rows.sort((a, b) => {
@@ -236,7 +316,8 @@ export function scoreFastest(
   entries: { teamId: string; value: string; submittedAt: number }[],
   question: Question,
   correctPoints: number,
-  fastestPoints: number
+  fastestPoints: number,
+  rule: "speed" | "accuracy" = "speed"
 ): FastestOutcome {
   const points: Record<string, number> = {};
   for (const e of entries) points[e.teamId] = 0;
@@ -254,6 +335,13 @@ export function scoreFastest(
   }
 
   if (correct.length === 0) return { points, winnerTeamId: null };
+
+  if (rule === "accuracy") {
+    // Being closest is the achievement; two teams tied on 88 both take it.
+    for (const e of correct) points[e.teamId] = fastestPoints;
+    return { points, winnerTeamId: null };
+  }
+
   const first = correct.reduce((a, b) => (a.submittedAt <= b.submittedAt ? a : b));
   for (const e of correct) points[e.teamId] = correctPoints;
   points[first.teamId] = fastestPoints;
@@ -325,4 +413,192 @@ export function seededShuffle<T>(items: T[], seed: string): T[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+
+/* ---------- list ---------- */
+
+export function parseListAnswer(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** One point per distinct correct name, capped at how many were asked for.
+    Duplicates don't pay twice. */
+export function scoreList(value: string, question: Question): { correct: number; total: number } {
+  const pool = (question.listAnswers ?? []).map(normalise);
+  const asked = question.requiredCount ?? pool.length;
+  const seen = new Set<string>();
+  let correct = 0;
+  for (const entry of parseListAnswer(value)) {
+    const n = normalise(entry);
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    if (pool.includes(n)) correct++;
+  }
+  return { correct: Math.min(correct, asked), total: asked };
+}
+
+/* ---------- match ---------- */
+
+export function parseMatchAnswer(value: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function scoreMatch(value: string, question: Question): { correct: number; total: number } {
+  const pairs = question.pairs ?? [];
+  const chosen = parseMatchAnswer(value);
+  let correct = 0;
+  for (const p of pairs) {
+    if (normalise(chosen[p.left] ?? "") === normalise(p.right)) correct++;
+  }
+  return { correct, total: pairs.length };
+}
+
+
+/* ---------- nominee ---------- */
+
+/** Renders "{nominee}" in a prompt as that team's nominee. Each team sees
+    their own name, which is the whole charm of the round. */
+export function withNominee(prompt: string, nomineeName?: string | null): string {
+  return prompt.replace(/\{nominee\}/gi, nomineeName || "your nominee");
+}
+
+/** The guess scores if it matches what the nominee said. No answer key is
+    authored — the nominee supplies it live. */
+export function scoreNominee(guess: string | undefined, nominee: string | undefined): boolean {
+  if (!guess || !nominee) return false;
+  return normalise(guess) === normalise(nominee);
+}
+
+
+/* ---------- multi-select ---------- */
+
+/** Right ticks earn, wrong ticks cost, and you can't go below zero on a
+    single question — otherwise guessing everything would be a strategy. */
+export function scoreMulti(value: string, question: Question): { correct: number; total: number } {
+  const right = (question.correctOptions ?? []).map(normalise);
+  const picked = parseListAnswer(value).map(normalise);
+  let net = 0;
+  for (const p of new Set(picked)) net += right.includes(p) ? 1 : -1;
+  return { correct: Math.max(0, net), total: right.length };
+}
+
+/* ---------- progressive clues ---------- */
+
+/** Answer after the first clue and it's worth full marks; every further clue
+    knocks one off, never below one. */
+export function scoreClues(atClue: number | undefined, maxPoints: number): number {
+  const used = Math.max(1, atClue ?? 1);
+  return Math.max(1, maxPoints - (used - 1));
+}
+
+/* ---------- power-ups ---------- */
+
+export function powerUpAllowed(round: Round | undefined, power: PowerUp): boolean {
+  return Boolean(round?.allowedPowerUps?.includes(power));
+}
+
+export function powerUpSpent(team: Team | undefined, power: PowerUp): boolean {
+  return Boolean(team?.usedPowerUps?.[power]);
+}
+
+/** First letter, plus the shape of the answer — enough to unstick a team
+    without handing it to them. */
+export function firstLetterHint(answer: string): string {
+  const trimmed = (answer || "").trim();
+  if (!trimmed) return "";
+  return `Starts with "${trimmed[0].toUpperCase()}" · ${trimmed.length} characters`;
+}
+
+/* ---------- redaction ----------
+   The whole session goes over the wire, so the quiz itself has to be
+   censored per recipient. Without this, any team could read every answer
+   out of the WebSocket frames in devtools. */
+
+function shuffleRights(pairs: { left: string; right: string }[], seed: string) {
+  const shuffled = seededShuffle(pairs.map((p) => p.right), seed);
+  return pairs.map((p, i) => ({ left: p.left, right: shuffled[i] }));
+}
+
+export interface RedactOptions {
+  /** Answers for this round are being shown, so they may be included. */
+  revealRound: number | null;
+  /** How many clues are visible on the current question. */
+  cluesShown: number;
+  currentRoundIdx: number;
+  currentQuestionIdx: number;
+  /** Stable seed so shuffles don't churn between snapshots. */
+  seed: string;
+}
+
+export function redactQuiz(quiz: Quiz, o: RedactOptions): Quiz {
+  return {
+    ...quiz,
+    // The host reads tiebreaker answers out; nobody else needs them.
+    tiebreakers: quiz.tiebreakers.map((t) => ({ ...t, correct: "" })),
+    rounds: quiz.rounds.map((round, ri) => {
+      if (ri === o.revealRound) return round; // the reveal is the point
+      return {
+        ...round,
+        questions: round.questions.map((q, qi) => {
+          const isCurrent = ri === o.currentRoundIdx && qi === o.currentQuestionIdx;
+          const out: Question = {
+            ...q,
+            correct: "",
+            accepted: [],
+            listAnswers: undefined,
+            correctOptions: undefined,
+          };
+          // Which word belongs where is the answer.
+          if (q.items) out.items = q.items.map((i) => ({ word: i.word, category: "" }));
+          // Send a scrambled order; the true one stays on the server.
+          if (q.sequence) out.sequence = seededShuffle(q.sequence, `${o.seed}:${q.id}`);
+          // Same for pairings — the left labels are safe, the mapping isn't.
+          if (q.pairs) out.pairs = shuffleRights(q.pairs, `${o.seed}:${q.id}`);
+          // Only clues actually on screen.
+          if (q.clues) out.clues = isCurrent ? q.clues.slice(0, o.cluesShown) : [];
+          return out;
+        }),
+      };
+    }),
+  };
+}
+
+/** A human-readable answer for the round review. Several formats keep their
+    answer somewhere other than `correct`, and the review was rendering blank
+    for all of them. */
+export function describeAnswer(round: Round, q: Question): string {
+  switch (round.answerFormat) {
+    case "choice":
+      return q.multi ? (q.correctOptions ?? []).join(", ") : q.correct;
+    case "list": {
+      const pool = q.listAnswers ?? [];
+      const asked = q.requiredCount ?? pool.length;
+      return asked < pool.length
+        ? `any ${asked} of: ${pool.join(", ")}`
+        : pool.join(", ");
+    }
+    case "sort":
+      return (q.categories ?? [])
+        .map((c) => `${c}: ${(q.items ?? []).filter((i) => i.category === c).map((i) => i.word).join(", ")}`)
+        .join(" · ");
+    case "order":
+      return (q.sequence ?? []).join(" → ");
+    case "match":
+      return (q.pairs ?? []).map((p) => `${p.left} → ${p.right}`).join(" · ");
+    case "nominee":
+      return "different for every team — ask your nominee";
+    default:
+      return q.correct;
+  }
 }

@@ -3,9 +3,11 @@ import {
   Play, RotateCcw, Lock, Unlock, ChevronRight, ChevronLeft, Users, Trophy,
   ClipboardCheck, Eye, Flag, Trash2, AlertTriangle, Check, Timer as TimerIcon,
   Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy, Coffee, Power,
+  Download, RefreshCw, Ban,
 } from "lucide-react";
 import {
-  answerKey, maxPointsOf, normalise, scoreSort, scoreOrder, type Round, type Snapshot,
+  answerKey, maxPointsOf, normalise, scoreSort, scoreOrder, scoreList, scoreMatch,
+  scoreMulti, parseListAnswer, describeAnswer, type Round, type Snapshot,
 } from "@quiz/shared";
 import { C, FONT_DATA, FONT_DISPLAY } from "../ui/theme";
 import { Btn, Countdown, Eyebrow, Leaderboard, Panel, Pill, useToasts, useConfirm } from "../ui/kit";
@@ -25,9 +27,42 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
   const [grading, setGrading] = useState(false);
   const { push, toasts } = useToasts();
   const { confirm, dialog } = useConfirm();
+  const [hideAnswers, setHideAnswers] = useState(false);
 
   /* Ends the session for everyone: phones and the projector are disconnected
      and shown the join screen, rather than sitting on a stale leaderboard. */
+  const removeTeam = async (teamId: string, name: string) => {
+    const ok = await confirm({
+      title: `Remove "${name}"?`,
+      body: "Their answers and score go with them. They'd have to rejoin as a new team.",
+      confirmLabel: "Remove", destructive: true,
+    });
+    if (ok) host({ action: "remove_team", teamId });
+  };
+
+  /* Sessions live in memory, and a free instance can restart without warning.
+     This is the paper backup: if the server dies you can still finish. */
+  const downloadScores = () => {
+    const s2 = snapshot!.session;
+    const rows = snapshot!.standings.map((t) => ({
+      rank: t.rank, team: t.name, total: t.score,
+      byRound: s2.quiz.rounds.map((r, i) => ({
+        round: r.title,
+        points: r.questions.reduce((n, q) => n + (s2.answers[answerKey(t.teamId, q.id)]?.points ?? 0), 0),
+        doubled: s2.teams.find((x) => x.id === t.teamId)?.jokerRound === i,
+      })),
+    }));
+    const blob = new Blob([JSON.stringify({
+      quiz: s2.quiz.title, joinCode: s2.joinCode, savedAt: new Date().toISOString(), standings: rows,
+    }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `scores-${s2.joinCode}-${new Date().toISOString().slice(11, 16).replace(":", "")}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    push({ title: "Scores saved", body: "Keep it — a restart would lose the session." });
+  };
+
   const closeRoom = async () => {
     const ok = await confirm({
       title: "Close the room?",
@@ -122,7 +157,12 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
           <div className="flex items-center gap-2">
             <Pill tone={status === "open" ? "live" : "danger"}>{status}</Pill>
             <Pill tone="dim">{s.state.replace("_", " ")}{s.state === "in_round" ? ` · ${s.phase}` : ""}</Pill>
-            <span className="ml-auto"><PresenterControls session={s} compact /></span>
+            <span className="ml-auto flex items-center gap-2">
+              <Btn small onClick={downloadScores} title="Save the scores in case the server restarts">
+                <Download size={13} /> Scores
+              </Btn>
+              <PresenterControls session={s} compact />
+            </span>
           </div>
 
           {s.state === "lobby" && (
@@ -165,6 +205,20 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
               <p className="mb-1 text-xl" style={{ fontWeight: 600, lineHeight: 1.25 }}>{question.prompt}</p>
               <p className="mb-4 text-sm" style={{ color: C.correct }}>Answer: {question.correct || "—"}</p>
 
+              {round.answerFormat === "clues" && (
+                <ol className="mb-4 flex flex-col gap-1">
+                  {(question.clues ?? []).map((clue, i) => (
+                    <li key={i} className="rounded px-2 py-1 text-sm"
+                      style={{
+                        background: i < s.cluesShown ? C.high : C.row,
+                        color: i < s.cluesShown ? C.ink : C.inkDim,
+                      }}>
+                      {i + 1}. {clue}{i >= s.cluesShown ? " (not shown yet)" : ""}
+                    </li>
+                  ))}
+                </ol>
+              )}
+
               <div className="flex items-center gap-4 mb-4 flex-wrap">
                 {s.phase === "answering" && <Countdown remaining={remaining} total={round.timeLimit} size="sm" />}
                 {playing && (
@@ -182,7 +236,9 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                   </div>
                 )}
                 <div className="text-sm" style={{ color: C.inkDim }}>
-                  {answered} of {s.teams.length} answered
+                  {round.wager && s.phase === "revealed"
+                    ? `${s.teams.filter((t) => s.wagers?.[answerKey(t.id, question.id)] != null).length} of ${s.teams.length} staked`
+                    : `${answered} of ${s.teams.length} answered`}
                 </div>
               </div>
 
@@ -196,7 +252,15 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                   <Btn tone="primary" onClick={() => host({ action: "play_media" })}><Play size={14} /> Play clip</Btn>
                 )}
                 {s.phase === "revealed" && round.mediaType === "none" && (
-                  <Btn tone="primary" onClick={() => host({ action: "start_timer" })}><TimerIcon size={14} /> Start timer</Btn>
+                  <Btn tone="primary" onClick={() => host({ action: "start_timer" })}>
+                    <TimerIcon size={14} /> {round.wager ? "Stakes in — show the question" : "Start timer"}
+                  </Btn>
+                )}
+                {round.answerFormat === "clues" && s.phase === "answering" &&
+                  s.cluesShown < (question.clues?.length ?? 0) && (
+                  <Btn onClick={() => host({ action: "reveal_clue" })}>
+                    Next clue ({s.cluesShown} of {question.clues?.length})
+                  </Btn>
                 )}
                 {(playing || (s.phase === "answering" && round.mediaType !== "none")) && (
                   <Btn onClick={() => host({ action: "replay_media" })}><RotateCcw size={14} /> Replay clip</Btn>
@@ -211,6 +275,14 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                 {s.phase === "locked" && (
                   <>
                     <Btn onClick={() => host({ action: "reopen" })}><Unlock size={14} /> Reopen</Btn>
+                    <Btn onClick={async () => {
+                      const ok = await confirm({
+                        title: "Void this question?",
+                        body: "Nobody scores on it and any stakes are returned. Use it when a question turns out to be wrong or ambiguous.",
+                        confirmLabel: "Void it", destructive: true,
+                      });
+                      if (ok) host({ action: "void_question", questionId: question.id });
+                    }}><Ban size={14} /> Void</Btn>
                     <Btn tone="primary" onClick={() => host({ action: "next_question" })}>
                       {s.questionIdx + 1 < round.questions.length ? "Next question" : "End round"} <ChevronRight size={14} />
                     </Btn>
@@ -342,10 +414,44 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                 const a = question ? s.answers[answerKey(t.id, question.id)] : null;
                 return (
                   <li key={t.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5" style={{ background: C.row }}>
-                    <span className="truncate text-sm" style={{ opacity: t.connected ? 1 : 0.5 }}>{t.name}</span>
+                    <span className="truncate text-sm" style={{ opacity: t.connected ? 1 : 0.5 }}>
+                      {t.name}
+                      {t.nomineeName && (
+                        <span className="ml-1.5 text-xs" style={{ color: C.inkDim }}
+                          title={`Nominee: ${t.nomineeName}`}>
+                          · {t.nomineeName}
+                        </span>
+                      )}
+                      {t.jokerRound != null && (
+                        <span className="ml-1.5 rounded px-1 text-xs"
+                          style={{ background: C.high, color: C.ink, fontWeight: 700 }}
+                          title={`Joker on round ${t.jokerRound + 1}`}>
+                          J{t.jokerRound + 1}
+                        </span>
+                      )}
+                    </span>
                     <span className="flex items-center gap-2 flex-shrink-0">
                       {a ? <Check size={14} style={{ color: C.correct }} /> : <span className="text-xs" style={{ color: C.inkDim }}>—</span>}
-                      <button onClick={() => host({ action: "remove_team", teamId: t.id })} title="Remove team" style={{ color: C.inkDim }}>
+                      <button
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: `Re-link ${t.name}?`,
+                            body: "Their phone has died or lost its data. Releasing the name lets a replacement device join with the same team name and keep the score.",
+                            confirmLabel: "Release the name",
+                          });
+                          if (ok) host({ action: "relink_team", teamId: t.id });
+                        }}
+                        title="Re-link a dead phone" style={{ color: t.awaitingRelink ? C.marker : C.inkDim }}>
+                        <RefreshCw size={13} />
+                      </button>
+                      <button onClick={async () => {
+                        const ok = await confirm({
+                          title: `Remove ${t.name}?`,
+                          body: "Their answers and score go with them.",
+                          confirmLabel: "Remove", destructive: true,
+                        });
+                        if (ok) host({ action: "remove_team", teamId: t.id });
+                      }} title="Remove team" style={{ color: C.inkDim }}>
                         <Trash2 size={13} />
                       </button>
                     </span>
@@ -396,6 +502,33 @@ function BreakButton({ onBreak }: { onBreak: (minutes: number) => void }) {
       <Btn small onClick={() => setOpen(false)}>Cancel</Btn>
     </span>
   );
+}
+
+/** Sessions live in memory, and a free instance can restart without warning.
+    One click turns that from a disaster into an annoyance. */
+function downloadScores(snapshot: Snapshot) {
+  const s = snapshot.session;
+  const header = ["Team", ...s.quiz.rounds.map((r) => r.title), "Total"];
+  const rows = snapshot.standings.map((st) => {
+    const team = s.teams.find((t) => t.id === st.teamId);
+    const perRound = s.quiz.rounds.map((round, ri) => {
+      let n = 0;
+      for (const q of round.questions) {
+        const a = s.answers[`${st.teamId}:${q.id}`];
+        if (a?.points != null) n += a.points;
+      }
+      return team?.jokerRound === ri ? n * 2 : n;
+    });
+    return [st.name, ...perRound, st.score];
+  });
+  const csv = [header, ...rows]
+    .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `quiz-${s.joinCode}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function PresenterControls({ session, compact }: { session: Snapshot["session"]; compact?: boolean }) {
@@ -513,12 +646,29 @@ function Grading({ snapshot, onClose, onAward }: {
               } else if (round.answerFormat === "order") {
                 const { correct, total } = scoreOrder(a.value, q);
                 display = `${correct} of ${total} in the right place`;
+              } else if (round.answerFormat === "list") {
+                const { correct, total } = scoreList(a.value, q);
+                display = parseListAnswer(a.value).filter(Boolean).join(", ") || "(blank)";
+                sub = `${correct} of ${total} correct`;
+              } else if (round.answerFormat === "match") {
+                const { correct, total } = scoreMatch(a.value, q);
+                display = `${correct} of ${total} paired correctly`;
+              } else if (round.answerFormat === "choice" && q.multi) {
+                const { correct, total } = scoreMulti(a.value, q);
+                display = parseListAnswer(a.value).join(", ") || "(nothing ticked)";
+                sub = `nets ${correct} of ${total}`;
+              } else if (round.answerFormat === "clues") {
+                sub = `answered on clue ${a.atClue ?? 1}`;
+              } else if (round.answerFormat === "nominee") {
+                const said = s.nomineeAnswers?.[answerKey(t.id, q.id)]?.value;
+                sub = said ? `nominee said "${said}"` : "nominee didn't answer";
               } else if (round.answerFormat === "fastest") {
                 sub = new Date(a.submittedAt).toLocaleTimeString(undefined, {
                   minute: "2-digit", second: "2-digit",
                 });
               }
-              const key = round.answerFormat === "sort" || round.answerFormat === "fastest" || round.answerFormat === "order"
+              const key = ["sort", "fastest", "order", "nominee", "match", "clues"].includes(round.answerFormat) ||
+                (round.answerFormat === "choice" && Boolean(q.multi))
                 ? t.id                      // never merge rows where timing or detail matters
                 : normalise(a.value) || "(blank)";
               const existing = clusters.get(key);
@@ -541,7 +691,7 @@ function Grading({ snapshot, onClose, onAward }: {
               <div key={q.id}>
                 <div className="mb-2">
                   <div className="text-sm" style={{ color: C.inkDim }}>{q.prompt}</div>
-                  <div style={{ color: C.correct, fontWeight: 600 }}>{q.correct}</div>
+                  <div style={{ color: C.correct, fontWeight: 600 }}>{describeAnswer(round, q) || "—"}</div>
                 </div>
                 {list.length === 0 && <p className="text-sm" style={{ color: C.inkDim }}>No answers submitted.</p>}
                 <div className="flex flex-col gap-2">
@@ -553,6 +703,7 @@ function Grading({ snapshot, onClose, onAward }: {
                         <div className="text-xs" style={{ color: C.inkDim }}>
                           {cl.names.join(", ")}{cl.sub ? ` · ${cl.sub}` : ""}
                           {round.answerFormat === "fastest" && i === 0 ? " · first in" : ""}
+                          {round.wager ? ` · staked ${s.wagers?.[answerKey(cl.teams[0], q.id)] ?? 0}` : ""}
                         </div>
                       </div>
                       <div className="flex gap-1">

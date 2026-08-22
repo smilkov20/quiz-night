@@ -339,6 +339,375 @@ assert(last(oHost).session.answers[`${oTeam.teamId}:oq1`]?.points === 4,
 assert(last(oHost).session.quiz.rounds[0].questions[0].sequence.join() === "Mercury,Venus,Earth,Mars",
   "the correct sequence survives the round trip");
 
+/* accuracy rule: two teams both answer 88 when the answer is 90, and both
+   take the higher points — speed is ignored. */
+const accQuiz = JSON.parse(JSON.stringify(quiz));
+accQuiz.rounds = [{
+  id: "a1", order: 0, title: "Accuracy", answerFormat: "fastest", mediaType: "none",
+  timeLimit: 30, defaultMaxPoints: 1, fastestPoints: 3, bonusRule: "accuracy",
+  questions: [{ id: "aq1", order: 0, prompt: "How many?", correct: "90", accepted: [],
+                maxPoints: null, fastestMode: "closest", mediaSource: "none" }],
+}];
+const ac = await post("/api/sessions", { quiz: accQuiz }, KEY);
+const acHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${ac.joinCode}&role=host&key=${KEY}`);
+const acTeams = [];
+for (const n of ["First", "Second", "Miles off"]) acTeams.push(await post("/api/join", { code: ac.joinCode, name: n }));
+const acSocks = [];
+for (const t of acTeams) acSocks.push(await open(`ws://127.0.0.1:${PORT}/ws?code=${ac.joinCode}&role=team&teamId=${t.teamId}`));
+await wait(120);
+const acAct = (p2) => acHost.send(JSON.stringify({ type: "host", payload: p2 }));
+acAct({ action: "begin_round" }); await wait(60);
+acAct({ action: "reveal_question" }); await wait(60);
+acAct({ action: "start_timer" }); await wait(60);
+acSocks[0].send(JSON.stringify({ type: "answer", questionId: "aq1", value: "88" })); await wait(150);
+acSocks[1].send(JSON.stringify({ type: "answer", questionId: "aq1", value: "88" })); await wait(150);
+acSocks[2].send(JSON.stringify({ type: "answer", questionId: "aq1", value: "40" })); await wait(150);
+acAct({ action: "lock" }); await wait(150);
+const acPts = (i) => last(acHost).session.answers[`${acTeams[i].teamId}:aq1`]?.points;
+assert(acPts(0) === 3 && acPts(1) === 3,
+  `accuracy rule gives both closest teams the higher points (${acPts(0)}, ${acPts(1)})`);
+assert(acPts(2) === 0, "a distant answer still scores nothing under the accuracy rule");
+
+/* Multiple choice marks itself. */
+const chQuiz = JSON.parse(JSON.stringify(quiz));
+chQuiz.rounds = [{
+  id: "c1", order: 0, title: "Choice", answerFormat: "choice", mediaType: "none",
+  timeLimit: 30, defaultMaxPoints: 1,
+  questions: [{ id: "cq1", order: 0, prompt: "Capital of Australia?", correct: "Canberra",
+                accepted: [], maxPoints: null, mediaSource: "none",
+                options: ["Sydney", "Melbourne", "Canberra", "Perth"] }],
+}];
+const ch = await post("/api/sessions", { quiz: chQuiz }, KEY);
+const chHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${ch.joinCode}&role=host&key=${KEY}`);
+const chRight = await post("/api/join", { code: ch.joinCode, name: "Right" });
+const chWrong = await post("/api/join", { code: ch.joinCode, name: "Wrong" });
+const chS1 = await open(`ws://127.0.0.1:${PORT}/ws?code=${ch.joinCode}&role=team&teamId=${chRight.teamId}`);
+const chS2 = await open(`ws://127.0.0.1:${PORT}/ws?code=${ch.joinCode}&role=team&teamId=${chWrong.teamId}`);
+await wait(120);
+const chAct = (p2) => chHost.send(JSON.stringify({ type: "host", payload: p2 }));
+chAct({ action: "begin_round" }); await wait(60);
+chAct({ action: "reveal_question" }); await wait(60);
+chAct({ action: "start_timer" }); await wait(60);
+chS1.send(JSON.stringify({ type: "answer", questionId: "cq1", value: "Canberra" }));
+chS2.send(JSON.stringify({ type: "answer", questionId: "cq1", value: "Sydney" }));
+await wait(150);
+chAct({ action: "lock" }); await wait(150);
+const chSess = last(chHost).session;
+assert(chSess.answers[`${chRight.teamId}:cq1`].points === 1, "multiple choice marks a right answer");
+assert(chSess.answers[`${chWrong.teamId}:cq1`].points === 0, "multiple choice marks a wrong answer");
+assert(chSess.quiz.rounds[0].questions[0].options.join() === "Sydney,Melbourne,Canberra,Perth",
+  "options reach every device in the same order, so A/B/C/D means the same thing");
+
+/* list, match, joker doubling and wipeout penalties. */
+const extraQuiz = JSON.parse(JSON.stringify(quiz));
+extraQuiz.rounds = [
+  {id:"l1",order:0,title:"Name them",answerFormat:"list",mediaType:"none",timeLimit:30,defaultMaxPoints:3,
+   questions:[{id:"lq1",order:0,prompt:"Name 3",correct:"",accepted:[],maxPoints:3,mediaSource:"none",
+               listAnswers:["Kenya","Uganda","Tanzania","Rwanda"],requiredCount:3}]},
+  {id:"m1",order:1,title:"Match",answerFormat:"match",mediaType:"none",timeLimit:30,defaultMaxPoints:2,allowedPowerUps:["double"],
+   questions:[{id:"mq2",order:0,prompt:"Author to book",correct:"",accepted:[],maxPoints:2,mediaSource:"none",
+               pairs:[{left:"Orwell",right:"1984"},{left:"Austen",right:"Emma"}]}]},
+  {id:"w1",order:2,title:"Wipeout",answerFormat:"yes_no",mediaType:"none",timeLimit:30,
+   defaultMaxPoints:1,penaltyForWrong:2,
+   questions:[{id:"wq1",order:0,prompt:"True?",correct:"Yes",accepted:[],maxPoints:null,mediaSource:"none"}]},
+];
+const x = await post("/api/sessions", { quiz: extraQuiz }, KEY);
+const xHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${x.joinCode}&role=host&key=${KEY}`);
+const xT = await post("/api/join", { code: x.joinCode, name: "Xs" });
+const xS = await open(`ws://127.0.0.1:${PORT}/ws?code=${x.joinCode}&role=team&teamId=${xT.teamId}`);
+await wait(120);
+const xAct = (p2) => xHost.send(JSON.stringify({ type: "host", payload: p2 }));
+
+// Joker on round 2 (the match round), nominated while still in the lobby.
+xS.send(JSON.stringify({ type: "use_powerup", power: "double", roundIdx: 1 })); await wait(120);
+assert(last(xHost).session.teams[0].jokerRound === 1, "a team can nominate a round to double");
+xS.send(JSON.stringify({ type: "use_powerup", power: "double", roundIdx: 2 })); await wait(120);
+assert(last(xHost).session.teams[0].jokerRound === 1, "the double can only be played once");
+
+/* Doubling a round the host didn't open it up for must be refused —
+   the old set_joker message skipped this check entirely. */
+const strict = await post("/api/sessions", { quiz: extraQuiz }, KEY);
+const strictHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${strict.joinCode}&role=host&key=${KEY}`);
+const strictT = await post("/api/join", { code: strict.joinCode, name: "Chancer" });
+const strictS = await open(`ws://127.0.0.1:${PORT}/ws?code=${strict.joinCode}&role=team&teamId=${strictT.teamId}`);
+await wait(150);
+strictS.send(JSON.stringify({ type: "use_powerup", power: "double", roundIdx: 0 })); await wait(150);
+assert(last(strictHost).session.teams[0].jokerRound == null,
+  "a round without the double enabled can't be doubled");
+
+xAct({ action: "begin_round" }); await wait(60);
+xAct({ action: "reveal_question" }); await wait(60);
+xAct({ action: "start_timer" }); await wait(60);
+xS.send(JSON.stringify({ type:"answer", questionId:"lq1",
+  value: JSON.stringify(["Kenya","kenya","Uganda"]) })); await wait(150);
+xAct({ action: "lock" }); await wait(150);
+assert(last(xHost).session.answers[`${xT.teamId}:lq1`].points === 2,
+  `duplicates don't pay twice: two distinct names of three scores 2 (got ${last(xHost).session.answers[`${xT.teamId}:lq1`].points})`);
+
+xAct({ action: "next_question" }); await wait(80);
+xAct({ action: "next_round" }); await wait(80);
+xAct({ action: "reveal_question" }); await wait(60);
+xAct({ action: "start_timer" }); await wait(60);
+xS.send(JSON.stringify({ type:"answer", questionId:"mq2",
+  value: JSON.stringify({ Orwell:"1984", Austen:"1984" }) })); await wait(150);
+xAct({ action: "lock" }); await wait(150);
+assert(last(xHost).session.answers[`${xT.teamId}:mq2`].points === 1, "one correct pair of two scores 1");
+const standing = last(xHost).standings.find((t) => t.teamId === xT.teamId);
+assert(standing.score === 2 + 1 * 2, `the jokered round counts double (2 + 1x2 = 4, got ${standing.score})`);
+
+xAct({ action: "next_question" }); await wait(80);
+xAct({ action: "next_round" }); await wait(80);
+xAct({ action: "reveal_question" }); await wait(60);
+xAct({ action: "start_timer" }); await wait(60);
+xS.send(JSON.stringify({ type:"answer", questionId:"wq1", value:"No" })); await wait(150);
+xAct({ action: "lock" }); await wait(150);
+assert(last(xHost).session.answers[`${xT.teamId}:wq1`].points === -2,
+  `a wrong answer in a wipeout round costs points (got ${last(xHost).session.answers[`${xT.teamId}:wq1`].points})`);
+
+/* Nominee round: two devices in one team, and the nominee's answer must never
+   reach the team's own device. */
+const nomQuiz = JSON.parse(JSON.stringify(quiz));
+nomQuiz.rounds = [{
+  id:"n1",order:0,title:"Guess your nominee",answerFormat:"nominee",mediaType:"none",
+  timeLimit:30,defaultMaxPoints:2,
+  questions:[
+    {id:"nq1",order:0,prompt:"What is {nominee}'s favourite season?",correct:"",accepted:[],maxPoints:2,mediaSource:"none"},
+    {id:"nq2",order:1,prompt:"What would {nominee} order at the bar?",correct:"",accepted:[],maxPoints:2,mediaSource:"none"},
+  ]}];
+const nm = await post("/api/sessions", { quiz: nomQuiz }, KEY);
+const nHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${nm.joinCode}&role=host&key=${KEY}`);
+const nTeam = await post("/api/join", { code: nm.joinCode, name: "Guessers" });
+
+const listed = await (await fetch(`${API}/api/teams?code=${nm.joinCode}`)).json();
+assert(listed.length === 1 && listed[0].hasNominee === false, "teams are listable so a nominee can pick one");
+
+const nom = await post("/api/join", { code: nm.joinCode, name: "Sam", asNomineeFor: nTeam.teamId });
+assert(nom.teamId === nTeam.teamId, "the nominee joins the existing team rather than making a new one");
+const secondNominee = await post("/api/join", { code: nm.joinCode, name: "Alex", asNomineeFor: nTeam.teamId }).catch(() => null);
+assert(secondNominee === null, "a team can only have one nominee");
+
+const nTeamSock = await open(`ws://${"127.0.0.1"}:${PORT}/ws?code=${nm.joinCode}&role=team&teamId=${nTeam.teamId}`);
+const nNomSock = await open(`ws://127.0.0.1:${PORT}/ws?code=${nm.joinCode}&role=nominee&teamId=${nTeam.teamId}`);
+await wait(150);
+const nAct = (p2) => nHost.send(JSON.stringify({ type: "host", payload: p2 }));
+nAct({ action: "begin_round" }); await wait(60);
+nAct({ action: "reveal_question" }); await wait(60);
+nAct({ action: "start_timer" }); await wait(60);
+
+nNomSock.send(JSON.stringify({ type:"answer", questionId:"nq1", value:"Autumn" })); await wait(150);
+nTeamSock.send(JSON.stringify({ type:"answer", questionId:"nq1", value:"autumn!" })); await wait(150);
+
+const teamView = last(nTeamSock);
+assert(Object.keys(teamView.session.nomineeAnswers || {}).length === 0,
+  "the team's own device never receives the nominee's answers");
+assert(Object.keys(last(nNomSock).session.nomineeAnswers).length === 1,
+  "the nominee sees their own answer, so a refresh restores it");
+assert(Object.keys(last(nHost).session.nomineeAnswers).length === 1,
+  "the host sees nominee answers, for marking");
+
+nAct({ action: "lock" }); await wait(150);
+assert(last(nHost).session.answers[`${nTeam.teamId}:nq1`].points === 2,
+  "a guess matching the nominee scores, ignoring case and punctuation");
+
+nAct({ action: "next_question" }); await wait(80);
+nAct({ action: "reveal_question" }); await wait(60);
+nAct({ action: "start_timer" }); await wait(60);
+nNomSock.send(JSON.stringify({ type:"answer", questionId:"nq2", value:"Guinness" })); await wait(150);
+nTeamSock.send(JSON.stringify({ type:"answer", questionId:"nq2", value:"Wine" })); await wait(150);
+nAct({ action: "lock" }); await wait(150);
+assert(last(nHost).session.answers[`${nTeam.teamId}:nq2`].points === 0, "a guess that misses scores nothing");
+
+/* Wagers, clues, multi-select and the power-up rules. */
+const pQuiz = JSON.parse(JSON.stringify(quiz));
+pQuiz.rounds = [
+  {id:"g1",order:0,title:"Wager",answerFormat:"choice",mediaType:"none",timeLimit:30,
+   defaultMaxPoints:1,wager:true,maxWager:5,allowedPowerUps:["hint","steal"],
+   questions:[{id:"gq1",order:0,prompt:"Capital?",correct:"Canberra",accepted:[],maxPoints:null,
+               mediaSource:"none",options:["Sydney","Canberra"]}]},
+  {id:"g2",order:1,title:"Clues",answerFormat:"clues",mediaType:"none",timeLimit:60,
+   defaultMaxPoints:5,allowedPowerUps:[],
+   questions:[{id:"gq2",order:0,prompt:"Who?",correct:"Warhol",accepted:[],maxPoints:5,
+               mediaSource:"none",clues:["Born 1928","Pop art","Soup cans"]}]},
+  {id:"g3",order:2,title:"Multi",answerFormat:"choice",mediaType:"none",timeLimit:30,
+   defaultMaxPoints:2,allowedPowerUps:[],
+   questions:[{id:"gq3",order:0,prompt:"Which are primes?",correct:"",accepted:[],maxPoints:2,
+               mediaSource:"none",multi:true,options:["2","4","7","9"],correctOptions:["2","7"]}]},
+];
+const g = await post("/api/sessions", { quiz: pQuiz }, KEY);
+const gHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${g.joinCode}&role=host&key=${KEY}`);
+const gA = await post("/api/join", { code: g.joinCode, name: "Alpha" });
+const gB = await post("/api/join", { code: g.joinCode, name: "Beta" });
+const sA = await open(`ws://127.0.0.1:${PORT}/ws?code=${g.joinCode}&role=team&teamId=${gA.teamId}`);
+const sB = await open(`ws://127.0.0.1:${PORT}/ws?code=${g.joinCode}&role=team&teamId=${gB.teamId}`);
+await wait(150);
+const gAct = (p2) => gHost.send(JSON.stringify({ type: "host", payload: p2 }));
+
+gAct({ action: "begin_round" }); await wait(60);
+gAct({ action: "reveal_question" }); await wait(60);
+sA.send(JSON.stringify({ type:"set_wager", amount: 4 })); await wait(100);
+sB.send(JSON.stringify({ type:"set_wager", amount: 3 })); await wait(100);
+assert(last(gHost).session.wagers[`${gA.teamId}:gq1`] === 4, "a stake is placed before the question appears");
+gAct({ action: "start_timer" }); await wait(60);
+sA.send(JSON.stringify({ type:"set_wager", amount: 5 })); await wait(100);
+assert(last(gHost).session.wagers[`${gA.teamId}:gq1`] === 4, "the stake can't be changed once the question is up");
+
+sA.send(JSON.stringify({ type:"answer", questionId:"gq1", value:"Canberra" })); await wait(120);
+sB.send(JSON.stringify({ type:"answer", questionId:"gq1", value:"Sydney" })); await wait(120);
+
+// Power-ups: hint is private, steal needs a target who has answered.
+sB.send(JSON.stringify({ type:"use_powerup", power:"hint" })); await wait(120);
+const bReveal = last(sB).session.reveals[`${gB.teamId}:gq1`];
+assert(bReveal?.hint?.includes("C"), `hint reveals the first letter (got ${JSON.stringify(bReveal)})`);
+assert(Object.keys(last(sA).session.reveals).length === 0, "a hint is private to the team that spent it");
+sB.send(JSON.stringify({ type:"use_powerup", power:"hint" })); await wait(120);
+assert(Object.values(last(gHost).session.teams.find(t=>t.id===gB.teamId).usedPowerUps).length === 1,
+  "a power-up can only be spent once");
+sB.send(JSON.stringify({ type:"use_powerup", power:"steal", targetTeamId: gA.teamId })); await wait(120);
+assert(last(sB).session.reveals[`${gB.teamId}:gq1`].steal.value === "Canberra",
+  "steal shows another team's answer");
+
+gAct({ action: "lock" }); await wait(150);
+const wA = last(gHost).session.answers[`${gA.teamId}:gq1`].points;
+const wB = last(gHost).session.answers[`${gB.teamId}:gq1`].points;
+assert(wA === 4 && wB === -3, `a wager is won or lost, not scored normally (got ${wA}, ${wB})`);
+
+// Clues: answer late, score less.
+gAct({ action: "next_question" }); await wait(80);
+gAct({ action: "next_round" }); await wait(80);
+gAct({ action: "reveal_question" }); await wait(80);
+assert(last(gHost).session.cluesShown === 1, "the first clue is free");
+gAct({ action: "start_timer" }); await wait(60);
+sA.send(JSON.stringify({ type:"answer", questionId:"gq2", value:"Warhol" })); await wait(120);
+gAct({ action: "reveal_clue" }); await wait(80);
+gAct({ action: "reveal_clue" }); await wait(80);
+sB.send(JSON.stringify({ type:"answer", questionId:"gq2", value:"Warhol" })); await wait(120);
+gAct({ action: "lock" }); await wait(150);
+const cA = last(gHost).session.answers[`${gA.teamId}:gq2`].points;
+const cB = last(gHost).session.answers[`${gB.teamId}:gq2`].points;
+assert(cA === 5, `answering on the first clue scores full marks (got ${cA})`);
+assert(cB === 3, `answering on the third clue scores less (got ${cB})`);
+
+// Multi-select: wrong ticks cancel right ones.
+gAct({ action: "next_question" }); await wait(80);
+gAct({ action: "next_round" }); await wait(80);
+gAct({ action: "reveal_question" }); await wait(60);
+gAct({ action: "start_timer" }); await wait(60);
+sA.send(JSON.stringify({ type:"answer", questionId:"gq3", value: JSON.stringify(["2","7"]) })); await wait(120);
+sB.send(JSON.stringify({ type:"answer", questionId:"gq3", value: JSON.stringify(["2","7","9"]) })); await wait(120);
+gAct({ action: "lock" }); await wait(150);
+assert(last(gHost).session.answers[`${gA.teamId}:gq3`].points === 2, "both right ticks score full marks");
+assert(last(gHost).session.answers[`${gB.teamId}:gq3`].points === 1,
+  `a wrong tick cancels a right one (got ${last(gHost).session.answers[`${gB.teamId}:gq3`].points})`);
+
+/* ---- regression guards from the code review ---- */
+
+/* The answer key must never reach a team. This was true of every version
+   until now: correct answers, accepted spellings, tiebreakers, sort
+   categories, correct orders and unrevealed clues were all readable in
+   devtools. */
+const secretQuiz = { id:"sec", title:"Sec", updatedAt:0,
+  tiebreakers:[{id:"st",order:0,mode:"exact",prompt:"TB",correct:"SECRET_TB",timeLimit:30}],
+  rounds:[
+    {id:"sr1",order:0,title:"T",answerFormat:"text",mediaType:"none",timeLimit:30,defaultMaxPoints:1,
+     questions:[{id:"sq1",order:0,prompt:"P",correct:"SECRET_ANS",accepted:["SECRET_ALT"],
+                 maxPoints:null,mediaSource:"none"}]},
+    {id:"sr2",order:1,title:"C",answerFormat:"clues",mediaType:"none",timeLimit:30,defaultMaxPoints:3,
+     questions:[{id:"sq2",order:0,prompt:"P",correct:"SECRET_CLUE",accepted:[],maxPoints:3,
+                 mediaSource:"none",clues:["c1","c2","c3"]}]},
+    {id:"sr3",order:2,title:"S",answerFormat:"sort",mediaType:"none",timeLimit:30,defaultMaxPoints:2,
+     questions:[{id:"sq3",order:0,prompt:"P",correct:"",accepted:[],maxPoints:2,mediaSource:"none",
+                 categories:["A","B"],items:[{word:"w1",category:"A"},{word:"w2",category:"B"}]}]},
+  ]};
+const sec = await post("/api/sessions", { quiz: secretQuiz }, KEY);
+const secTeam = await post("/api/join", { code: sec.joinCode, name: "Spy" });
+const secWs = await open(`ws://127.0.0.1:${PORT}/ws?code=${sec.joinCode}&role=team&teamId=${secTeam.teamId}`);
+const secHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${sec.joinCode}&role=host&key=${KEY}`);
+await wait(200);
+const teamBlob = JSON.stringify(last(secWs));
+for (const secret of ["SECRET_ANS","SECRET_ALT","SECRET_TB","SECRET_CLUE"])
+  assert(!teamBlob.includes(secret), `a team's snapshot never contains ${secret}`);
+assert(last(secWs).session.quiz.rounds[2].questions[0].items.every((i) => !i.category),
+  "sort categories are stripped, so which word goes where isn't readable");
+assert(last(secWs).session.quiz.rounds[1].questions[0].clues.length === 0,
+  "unrevealed clues aren't sent ahead of time");
+assert(JSON.stringify(last(secHost)).includes("SECRET_ANS"), "the host still receives the answers");
+
+/* Answers are revealed on purpose during a round review. */
+const secAct = (p2) => secHost.send(JSON.stringify({ type: "host", payload: p2 }));
+secAct({ action: "begin_round" }); await wait(60);
+secAct({ action: "reveal_question" }); await wait(60);
+secAct({ action: "start_timer" }); await wait(60);
+secAct({ action: "lock" }); await wait(60);
+secAct({ action: "next_question" }); await wait(150);
+assert(JSON.stringify(last(secWs)).includes("SECRET_ANS"),
+  "the round review does show the answers — that's the point of it");
+
+/* A wager must survive manual marking, and must not be penalised twice. */
+const wQuiz = { ...secretQuiz, id:"w", rounds:[
+  {id:"wr",order:0,title:"W",answerFormat:"text",mediaType:"none",timeLimit:30,
+   defaultMaxPoints:1,wager:true,maxWager:5,penaltyForWrong:2,
+   questions:[{id:"wq",order:0,prompt:"P",correct:"yes",accepted:[],maxPoints:1,mediaSource:"none"}]}]};
+const w = await post("/api/sessions", { quiz: wQuiz }, KEY);
+const wHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${w.joinCode}&role=host&key=${KEY}`);
+const wgA = await post("/api/join", { code: w.joinCode, name: "A" });
+const wgB = await post("/api/join", { code: w.joinCode, name: "B" });
+const wgsA = await open(`ws://127.0.0.1:${PORT}/ws?code=${w.joinCode}&role=team&teamId=${wgA.teamId}`);
+const wgsB = await open(`ws://127.0.0.1:${PORT}/ws?code=${w.joinCode}&role=team&teamId=${wgB.teamId}`);
+await wait(150);
+const wAct = (p2) => wHost.send(JSON.stringify({ type: "host", payload: p2 }));
+wAct({ action: "begin_round" }); await wait(60);
+wAct({ action: "reveal_question" }); await wait(60);
+wgsA.send(JSON.stringify({ type:"set_wager", amount: 5 }));
+wgsB.send(JSON.stringify({ type:"set_wager", amount: 4 })); await wait(120);
+wAct({ action: "start_timer" }); await wait(60);
+wgsA.send(JSON.stringify({ type:"answer", questionId:"wq", value:"yes" }));
+wgsB.send(JSON.stringify({ type:"answer", questionId:"wq", value:"no" })); await wait(150);
+wAct({ action: "lock" }); await wait(150);
+wAct({ action: "grade", questionId:"wq", teamIds:[wgA.teamId], points: 1 }); await wait(100);
+wAct({ action: "grade", questionId:"wq", teamIds:[wgB.teamId], points: 0 }); await wait(150);
+const wPtsA = last(wHost).session.answers[`${wgA.teamId}:wq`].points;
+const wPtsB = last(wHost).session.answers[`${wgB.teamId}:wq`].points;
+assert(wPtsA === 5, `a stake survives manual marking (expected 5, got ${wPtsA})`);
+assert(wPtsB === -4, `a lost stake isn't also hit by the round penalty (expected -4, got ${wPtsB})`);
+
+/* Removing a team shouldn't leave its answers behind. */
+wAct({ action: "remove_team", teamId: wgB.teamId }); await wait(150);
+const leftovers = Object.keys(last(wHost).session.answers).filter((k) => k.startsWith(`${wgB.teamId}:`));
+assert(leftovers.length === 0, "removing a team clears its answers and stakes");
+
+/* A dead phone must be recoverable without losing the score, and a bad
+   question must cost nobody. */
+const rQuiz = { id:"r", title:"R", updatedAt:0, tiebreakers:[], rounds:[
+  {id:"rr",order:0,title:"R",answerFormat:"yes_no",mediaType:"none",timeLimit:30,
+   defaultMaxPoints:1,wager:true,maxWager:5,
+   questions:[{id:"rq",order:0,prompt:"P",correct:"Yes",accepted:[],maxPoints:1,mediaSource:"none"}]}]};
+const rs = await post("/api/sessions", { quiz: rQuiz }, KEY);
+const rHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${rs.joinCode}&role=host&key=${KEY}`);
+const rT = await post("/api/join", { code: rs.joinCode, name: "Butterfingers" });
+const rS = await open(`ws://127.0.0.1:${PORT}/ws?code=${rs.joinCode}&role=team&teamId=${rT.teamId}`);
+await wait(150);
+const rAct = (p2) => rHost.send(JSON.stringify({ type: "host", payload: p2 }));
+rAct({ action: "begin_round" }); await wait(60);
+rAct({ action: "reveal_question" }); await wait(60);
+rS.send(JSON.stringify({ type: "set_wager", amount: 5 })); await wait(90);
+rAct({ action: "start_timer" }); await wait(60);
+rS.send(JSON.stringify({ type: "answer", questionId: "rq", value: "Yes" })); await wait(120);
+rAct({ action: "lock" }); await wait(120);
+assert(last(rHost).session.answers[`${rT.teamId}:rq`].points === 5, "the staked question scored first");
+
+rAct({ action: "void_question", questionId: "rq" }); await wait(120);
+assert(last(rHost).session.answers[`${rT.teamId}:rq`].points === 0, "voiding a question scores it zero");
+assert(last(rHost).session.wagers[`${rT.teamId}:rq`] === undefined, "voiding returns the stake");
+
+// Same name is normally refused...
+const blocked = await post("/api/join", { code: rs.joinCode, name: "Butterfingers" }).catch(() => null);
+assert(blocked === null, "a duplicate team name is refused while the team is live");
+// ...until the host releases it for a replacement phone.
+rAct({ action: "relink_team", teamId: rT.teamId }); await wait(120);
+const replacement = await post("/api/join", { code: rs.joinCode, name: "Butterfingers" });
+assert(replacement.teamId === rT.teamId, "a replacement phone takes over the same team, keeping its score");
+assert(last(rHost).session.teams.length === 1, "re-linking doesn't create a second team");
+
 console.log("\nALL E2E CHECKS PASSED");
-[host, pres, wsA2, wsB].forEach(w => w.close());
+[host, pres, wsA2, wgsB].forEach(w => w.close());
 process.exit(0);

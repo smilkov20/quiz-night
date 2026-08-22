@@ -8,7 +8,8 @@
     "build": "pnpm --filter @quiz/web build",
     "start": "pnpm --filter @quiz/server start",
     "typecheck": "pnpm -r typecheck",
-    "test:e2e": "cd apps/server && node e2e.mjs"
+    "test:e2e": "cd apps/server && node e2e.mjs",
+    "simulate": "pnpm --filter @quiz/server simulate"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

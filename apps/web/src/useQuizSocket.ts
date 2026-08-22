@@ -99,6 +99,29 @@ export function useQuizSocket({ code, role, teamId, token, hostKey }: Options) {
     };
   }, [code, role, teamId, token, hostKey]);
 
+  /* A phone that's been asleep or backgrounded often has a socket that looks
+     open but isn't. Reconnect the moment it comes back, without waiting out
+     the backoff. */
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const ws0 = ws.current;
+      if (!ws0 || ws0.readyState === WebSocket.CLOSED || ws0.readyState === WebSocket.CLOSING) {
+        retry.current = 0;
+        ws0?.close();
+      } else if (ws0.readyState === WebSocket.OPEN) {
+        // Prod it: if the socket is a zombie the send throws and onclose fires.
+        try { ws0.send(JSON.stringify({ type: "ping" })); } catch { ws0.close(); }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, []);
+
   // Keeps the connection accounted for without preventing hibernation.
   useEffect(() => {
     const id = setInterval(() => send({ type: "ping" }), 25000);

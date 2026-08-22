@@ -37,6 +37,14 @@ presenter URL is logged to the browser console.
 For frontend hot reload while developing, `pnpm dev` runs Vite on `:5173`
 against the server on `:8787` (set `VITE_API_URL=http://localhost:8787`).
 
+Play a whole quiz against a running server — host, projector, four teams and a
+nominee, every round of the demo quiz, checking at each step that all three
+surfaces agree:
+
+```bash
+pnpm simulate
+```
+
 Run the end-to-end suite — 22 checks covering lockstep, auto-lock,
 late-submission refusal, privilege separation, reconnection and marking:
 
@@ -117,6 +125,20 @@ it's architecturally the better fit: one object per session gives the same
 single-owner in-memory model with no server to keep awake, and it's free at this
 scale. It needs a Cloudflare account, which is what pushed us to Node. Same wire
 protocol, so the frontend works against either.
+
+## Before a live quiz
+
+- **Dry run on the venue's wifi** with two or three real phones. Everything
+  here is verified by automated clients, not by Safari on a cracked iPhone.
+- **Open the room ten minutes early.** A free instance sleeps after 15 minutes
+  and takes up to a minute to wake.
+- **Do not push to git during the quiz.** Auto-deploy restarts the service and
+  sessions live in memory.
+- **Press "Scores" after each round.** It downloads the standings as JSON. If
+  the server restarts mid-quiz that file is the difference between finishing
+  and starting again.
+- **Fill in media answers.** A clip with no correct answer marks everyone zero.
+- **Check every clip in the lobby.** Embedding gets disabled without warning.
 
 ## Known gaps
 
