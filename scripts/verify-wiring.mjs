@@ -81,6 +81,8 @@ const MUST_REACH = {
   "nominee join": "I'm my team's nominee",
   "leave escape hatch": "Join a different quiz",
   "marking answer key": "Also accept",
+  "marking from anywhere": "any round, any time",
+  "sound unlock hint": "Click anywhere to enable sound",
   "round explainer": "Explain how this round works",
   "theme editor": "Look and feel",
   "tiebreaker editor": "Tiebreaker",
@@ -114,6 +116,22 @@ const answerReads = teamSurface
     !/describeAnswer\(/.test(line));
 for (const { line, n } of answerReads) {
   fail(`Team.tsx:${n} reads an answer directly — teams only ever get redacted data: ${line.slice(0, 70)}`);
+}
+
+/* ---- 7. answers must always be rendered through describeAnswer ----
+   Only plain text keeps its answer in `correct`; list, sort, order, match and
+   multi-select keep theirs elsewhere, so rendering the raw field shows a dash
+   for half the round types. */
+for (const surface of ["Host.tsx", "Presenter.tsx", "Team.tsx"]) {
+  const src = readFileSync(join(root, "apps/web/src/surfaces", surface), "utf8");
+  const rawRenders = src
+    .split("\n")
+    .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+    // A render position looks like {q.correct} or {q.correct || "…"} inside JSX.
+    .filter(({ line }) => /\{\s*(q|question)\.correct\s*(\|\||\})/.test(line));
+  for (const { line, n } of rawRenders) {
+    fail(`${surface}:${n} renders a raw answer instead of describeAnswer(): ${line.slice(0, 70)}`);
+  }
 }
 
 console.log(`Checked ${actions.length} host actions, ${messages.length} client messages, ` +

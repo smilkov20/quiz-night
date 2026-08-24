@@ -50,17 +50,23 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
         onNeedsUnlock={(unlock, needed) => setUnlockFn(() => (needed ? unlock : null))}
       />
 
-      {unlockFn && hasMedia && (
+      {/* A hint in the corner, never a blocker: any click on this window
+          unlocks audio, and it only appears in the lobby — the one moment
+          the room isn't looking at a question. */}
+      {unlockFn && hasMedia && s.state === "lobby" && (
         <button
           onClick={() => { unlockFn(); setUnlockFn(null); }}
-          className="fixed inset-0 z-40 flex flex-col items-center justify-center"
-          style={{ background: "rgba(21,35,79,0.92)", color: C.onInk }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: "clamp(28px,5vw,56px)", letterSpacing: "-0.02em" }}>
-            Tap to enable sound
-          </div>
-          <p className="mt-3 text-lg" style={{ opacity: 0.8 }}>
-            Once, before the guests arrive. Browsers won't play audio in a window
-            nobody has clicked.
+          className="fixed z-40 rounded-xl px-4 py-3 text-left"
+          style={{
+            bottom: 20, left: 20, maxWidth: 340,
+            background: T.card, color: T.ink,
+            border: `2px solid ${T.accent}`,
+            boxShadow: "0 8px 28px rgba(21,35,79,0.18)",
+          }}>
+          <div style={{ fontWeight: 700 }}>Click anywhere to enable sound</div>
+          <p className="text-sm mt-1" style={{ opacity: 0.75 }}>
+            Browsers won't play audio in a window nobody has clicked. Do it now,
+            before the guests arrive.
           </p>
         </button>
       )}

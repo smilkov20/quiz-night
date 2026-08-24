@@ -876,6 +876,41 @@ assert((cntQ.correctOptions ?? []).length === 2,
 assert((cntQ.correctOptions ?? []).every((x) => x === ""),
   "but not which ones — the values are blanked");
 
+/* Spotting a typo in round seven has to be fixable in round two. Marking a
+   past round while a later one is live must work, and must stick. */
+const backQuiz = { ...secretQuiz, id:"back", infoSlides:[], theme:{}, rounds:[
+  { id:"b1", order:0, title:"First", answerFormat:"text", mediaType:"none",
+    timeLimit:30, defaultMaxPoints:2,
+    questions:[{ id:"bq1", order:0, prompt:"P", correct:"Bulgakov", accepted:[], maxPoints:2, mediaSource:"none" }] },
+  { id:"b2", order:1, title:"Second", answerFormat:"text", mediaType:"none",
+    timeLimit:30, defaultMaxPoints:2,
+    questions:[{ id:"bq2", order:0, prompt:"P", correct:"X", accepted:[], maxPoints:2, mediaSource:"none" }] }]};
+const bk = await post("/api/sessions", { quiz: backQuiz }, KEY);
+const bkHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${bk.joinCode}&role=host&key=${KEY}`);
+const bkT = await post("/api/join", { code: bk.joinCode, name: "Typos" });
+const bkWs = await open(`ws://127.0.0.1:${PORT}/ws?code=${bk.joinCode}&role=team&teamId=${bkT.teamId}`);
+await wait(150);
+const backAct = (p2) => bkHost.send(JSON.stringify({ type: "host", payload: p2 }));
+backAct({ action: "begin_round" }); await wait(60);
+backAct({ action: "reveal_question" }); await wait(60);
+backAct({ action: "start_timer" }); await wait(60);
+bkWs.send(JSON.stringify({ type:"answer", questionId:"bq1", value:"Bulgacov" })); await wait(130);
+backAct({ action: "lock" }); await wait(80);
+backAct({ action: "grade", questionId:"bq1", teamIds:[bkT.teamId], points: 0 }); await wait(110);
+assert(last(bkHost).session.answers[`${bkT.teamId}:bq1`].points === 0, "a near-miss was marked wrong");
+
+// Move on two states, then go back and correct it.
+backAct({ action: "next_question" }); await wait(80);
+backAct({ action: "next_round" }); await wait(80);
+backAct({ action: "reveal_question" }); await wait(80);
+backAct({ action: "start_timer" }); await wait(80);
+assert(last(bkHost).session.roundIdx === 1, "we're now in a later round");
+backAct({ action: "grade", questionId:"bq1", teamIds:[bkT.teamId], points: 2 }); await wait(130);
+assert(last(bkHost).session.answers[`${bkT.teamId}:bq1`].points === 2,
+  "an earlier round can be re-marked while a later one is running");
+assert(last(bkHost).standings.find((x) => x.teamId === bkT.teamId).score === 2,
+  "and the leaderboard picks the correction up");
+
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wgsB].forEach(w => w.close());
 process.exit(0);

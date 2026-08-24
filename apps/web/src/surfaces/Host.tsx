@@ -159,6 +159,16 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
             <Pill tone={status === "open" ? "live" : "danger"}>{status}</Pill>
             <Pill tone="dim">{s.state.replace("_", " ")}{s.state === "in_round" ? ` · ${s.phase}` : ""}</Pill>
             <span className="ml-auto flex items-center gap-2">
+              {s.scoring === "devices" && (
+                <Btn small onClick={() => setGrading(true)} title="Open marking — any round, at any time">
+                  <ClipboardCheck size={13} /> Marking
+                  {snapshot.ungradedCount > 0 && (
+                    <span className="rounded-full px-1.5" style={{ background: C.marker, color: C.onInk, fontSize: 11 }}>
+                      {snapshot.ungradedCount}
+                    </span>
+                  )}
+                </Btn>
+              )}
               <InfoSlides slides={s.quiz.infoSlides ?? []} showing={s.state === "info"}
                 onShow={(id) => host({ action: "show_info", slideId: id })}
                 onHide={() => host({ action: "hide_info" })} />
@@ -232,7 +242,26 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
               </div>
 
               <p className="mb-1 text-xl" style={{ fontWeight: 600, lineHeight: 1.25 }}>{question.prompt}</p>
-              <p className="mb-4 text-sm" style={{ color: C.correct }}>Answer: {question.correct || "—"}</p>
+              {/* Formats other than plain text keep their answer somewhere other
+                  than `correct`, so this has to go through describeAnswer or
+                  half the rounds show a dash. */}
+              <p className="mb-4 text-sm flex items-start gap-2">
+                <span style={{
+                  color: describeAnswer(round, question) ? C.correct : C.marker,
+                  filter: hideAnswers ? "blur(5px)" : "none",
+                  userSelect: hideAnswers ? "none" : "auto",
+                }}>
+                  Answer: {describeAnswer(round, question) || "none set in the editor"}
+                </span>
+                {question.accepted.length > 0 && !hideAnswers && (
+                  <span style={{ color: C.inkDim }}>· also: {question.accepted.join(", ")}</span>
+                )}
+                <button onClick={() => setHideAnswers(!hideAnswers)}
+                  title={hideAnswers ? "Show answers" : "Hide answers from prying eyes"}
+                  style={{ color: C.inkDim, flexShrink: 0 }}>
+                  <EyeOff size={13} />
+                </button>
+              </p>
 
               {round.answerFormat === "clues" && (
                 <ol className="mb-4 flex flex-col gap-1">
@@ -725,7 +754,7 @@ function SoundCheck({ snapshot }: { snapshot: Snapshot }) {
           return (
             <li key={q.id} className="flex items-center gap-2 rounded px-2 py-1.5" style={{ background: C.row }}>
               {roundIcon(r)}
-              <span className="flex-1 truncate text-sm">{r.title} · {q.correct || q.prompt}</span>
+              <span className="flex-1 truncate text-sm">{r.title} · {describeAnswer(r, q) || q.prompt}</span>
               <span className="text-xs" style={{ fontFamily: FONT_DATA, color: C.inkDim }}>
                 {q.clipStart}–{q.clipEnd}s
               </span>
@@ -764,8 +793,25 @@ function Grading({ snapshot, onClose, onAward }: {
             <ChevronLeft size={14} />
           </Btn>
           <div className="flex-1 text-center">
-            <div className="text-xs uppercase" style={{ color: C.marker, letterSpacing: "0.16em", fontWeight: 700 }}>Marking</div>
-            <div style={{ fontWeight: 600 }}>{round.title}</div>
+            <div className="text-xs uppercase" style={{ color: C.marker, letterSpacing: "0.16em", fontWeight: 700 }}>
+              Marking · any round, any time
+            </div>
+            <select value={roundIdx} onChange={(e) => setRoundIdx(Number(e.target.value))}
+              className="mt-0.5 rounded-md border px-2 py-1 text-sm"
+              style={{ background: C.card, borderColor: C.rule, color: C.ink, fontWeight: 600, maxWidth: 260 }}>
+              {s.quiz.rounds.map((r, i) => {
+                const left = r.questions.reduce((n, q) =>
+                  n + s.teams.filter((t) => {
+                    const a = s.answers[answerKey(t.id, q.id)];
+                    return a && a.points == null;
+                  }).length, 0);
+                return (
+                  <option key={r.id} value={i}>
+                    {i + 1}. {r.title}{left > 0 ? ` — ${left} unmarked` : ""}
+                  </option>
+                );
+              })}
+            </select>
           </div>
           <Btn small onClick={() => setRoundIdx(Math.min(s.quiz.rounds.length - 1, roundIdx + 1))}
             disabled={roundIdx === s.quiz.rounds.length - 1}>

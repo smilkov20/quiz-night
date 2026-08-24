@@ -108,23 +108,38 @@ export function YouTubeStage({
 
   /* A browser will not play audio in a window that has never been clicked.
      The host presses Play on their console, which is a different window from
-     the projector — so without this the room hears nothing. A single tap on
-     the presenter, once, satisfies the gesture requirement for the night. */
+     the projector — so without this the room hears nothing. One click on the
+     presenter, once, satisfies the gesture requirement for the night.
+
+     The callback identity changes on every render, so it lives in a ref: as a
+     dependency it re-ran the effect, which re-armed the prompt the instant it
+     was dismissed, and it could never be got rid of. */
+  const needsUnlockRef = useRef(onNeedsUnlock);
+  needsUnlockRef.current = onNeedsUnlock;
+  const unlockedRef = useRef(false);
+
   useEffect(() => {
-    if (!onNeedsUnlock || muted || !ready) return;
+    if (muted || !ready || unlockedRef.current) return;
+
     const unlock = () => {
+      if (unlockedRef.current) return;
+      unlockedRef.current = true;
       const p = player.current;
-      if (!p) return;
       try {
-        p.mute?.();
-        p.playVideo?.();
-        p.pauseVideo?.();
-        p.unMute?.();
+        p?.mute?.();
+        p?.playVideo?.();
+        p?.pauseVideo?.();
+        p?.unMute?.();
       } catch { /* nothing loaded yet, which is fine */ }
-      onNeedsUnlock(unlock, false);
+      needsUnlockRef.current?.(unlock, false);
     };
-    onNeedsUnlock(unlock, true);
-  }, [ready, muted, onNeedsUnlock]);
+
+    // Any click anywhere counts, so the prompt is only ever a hint.
+    const onAnyClick = () => unlock();
+    window.addEventListener("pointerdown", onAnyClick, { once: true });
+    needsUnlockRef.current?.(unlock, true);
+    return () => window.removeEventListener("pointerdown", onAnyClick);
+  }, [ready, muted]);
 
   const geometry =
     size === "projector"
