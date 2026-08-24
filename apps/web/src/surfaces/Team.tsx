@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Zap, Sparkles, Eye, Copy } from "lucide-react";
 import { answerKey, maxPointsOf, parseSortAnswer, parseOrderAnswer, parseListAnswer,
   parseMatchAnswer, seededShuffle, withNominee, powerUpAllowed, powerUpSpent,
-  describeAnswer,
+  describeAnswer, describeRound, resolveTheme,
   POWER_UP_LABELS, type ConnectionRole, type PowerUp, type Snapshot } from "@quiz/shared";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Countdown, Eyebrow, Leaderboard, Pill } from "../ui/kit";
@@ -194,6 +194,23 @@ function Playing({ code, teamId, role, onForget }: { code: string; teamId: strin
         </div>
       );
 
+    if (s.state === "info") {
+      const slide = (s.quiz.infoSlides ?? []).find((x) => x.id === s.infoSlideId);
+      if (!slide) return <p style={{ color: C.inkDim }}>…</p>;
+      return (
+        <div className="py-4">
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, lineHeight: 1.15, letterSpacing: "-0.02em" }}>
+            {slide.title}
+          </div>
+          {slide.imageUrl && (
+            <img src={slide.imageUrl} alt="" className="mt-4 w-full rounded-lg"
+              style={{ maxHeight: "35vh", objectFit: "contain" }} />
+          )}
+          {slide.body && <p className="mt-3 text-sm" style={{ lineHeight: 1.6 }}>{slide.body}</p>}
+        </div>
+      );
+    }
+
     if (s.state === "break") {
       const left = s.breakEndsAt ? (s.breakEndsAt - now()) / 1000 : 0;
       return (
@@ -302,7 +319,7 @@ function Playing({ code, teamId, role, onForget }: { code: string; teamId: strin
   };
 
   return (
-    <Shell name={me.name} status={status} onForget={onForget}>
+    <Shell name={me.name} status={status} onForget={onForget} logoUrl={resolveTheme(s.quiz.theme).logoUrl}>
       {body()}
       {s.state !== "finished" && role !== "nominee" && (
         <PowerUps
@@ -560,13 +577,15 @@ function AnswerPad({ snapshot, teamId, role, remaining, onAnswer }: {
   );
 }
 
-function Shell({ children, name, status, onForget }: {
-  children: React.ReactNode; name: string; status: string; onForget?: (msg?: string) => void;
+function Shell({ children, name, status, onForget, logoUrl }: {
+  children: React.ReactNode; name: string; status: string;
+  onForget?: (msg?: string) => void; logoUrl?: string;
 }) {
   return (
     <div className="min-h-screen p-4" style={{ background: C.page, color: C.ink }}>
       <div className="mx-auto w-full max-w-sm">
         <div className="flex items-center gap-2 mb-3">
+          {logoUrl && <img src={logoUrl} alt="" style={{ maxHeight: 24, maxWidth: 90, objectFit: "contain" }} />}
           <span className="flex-1 text-sm truncate" style={{ fontWeight: 600 }}>{name}</span>
           <Pill tone={status === "open" ? "live" : "danger"}>{status === "open" ? "connected" : status}</Pill>
           {onForget && (

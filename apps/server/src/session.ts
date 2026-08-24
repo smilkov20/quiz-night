@@ -5,7 +5,7 @@ import {
   scoreFastest, scoreSort, scoreOrder, scoreList, scoreMatch, scoreNominee,
   scoreMulti, scoreClues, powerUpAllowed, powerUpSpent, firstLetterHint, redactQuiz,
   type ConnectionRole, type HostAction, type Quiz, type ServerMessage,
-  type Session, type Snapshot, type Round, type PowerUp,
+  type Session, type Snapshot, type Round, type PowerUp, type ScoringMode,
 } from "@quiz/shared";
 
 interface Conn { ws: WebSocket; role: ConnectionRole; teamId?: string }
@@ -28,12 +28,13 @@ export class LiveSession {
       lookup table. */
   onClosed?: () => void;
 
-  constructor(quiz: Quiz, joinCode: string) {
+  constructor(quiz: Quiz, joinCode: string, scoring: ScoringMode = "devices") {
     this.session = {
       id: makeToken(8), joinCode, presenterToken: makeToken(), quiz,
       state: "lobby", roundIdx: 0, questionIdx: 0, phase: "idle",
       questionStartedAt: null, mediaStartedAt: null, reviewRound: null,
-      breakEndsAt: null, breakStartedAt: null, breakReturn: null,
+      breakEndsAt: null, breakStartedAt: null, breakReturn: null, infoSlideId: null,
+      scoring, manualScores: {},
       teams: [], answers: {}, nomineeAnswers: {},
       wagers: {}, reveals: {}, cluesShown: 0, tiebreakIdx: 0, tiebreakTeams: [], tiebreakAnswers: {},
       winnerTeamId: null, createdAt: Date.now(),
@@ -58,6 +59,9 @@ export class LiveSession {
   }
 
   join(name: string, token: string | null): { teamId: string; teamToken: string } | { error: string } {
+    if (this.session.scoring === "paper") {
+      return { error: "This quiz is scored on paper — ask the host to add your team" };
+    }
     if (token) {
       const existing = this.tokens.get(token);
       if (existing && this.session.teams.some((t) => t.id === existing)) {
@@ -234,6 +238,22 @@ export class LiveSession {
           s.breakEndsAt = from + a.minutes * 60_000;
         }
         break;
+      case "show_info": {
+        const slide = (s.quiz.infoSlides ?? []).find((x) => x.id === a.slideId);
+        if (!slide) break;
+        // Same hand-back rule as a break: return to whatever it interrupted.
+        if (s.state !== "info" && s.state !== "break") s.breakReturn = s.state;
+        s.state = "info";
+        s.infoSlideId = slide.id;
+        break;
+      }
+      case "hide_info":
+        if (s.state === "info") {
+          s.state = s.breakReturn ?? "round_review";
+          s.breakReturn = null;
+          s.infoSlideId = null;
+        }
+        break;
       case "end_break":
         if (s.state === "break") {
           s.state = s.breakReturn ?? "round_review";
@@ -284,6 +304,21 @@ export class LiveSession {
         }
         break;
       }
+      case "add_team": {
+        if (s.scoring !== "paper") break;
+        const clean = a.name.trim().slice(0, 60);
+        if (!clean) break;
+        if (s.teams.some((t) => normalise(t.name) === normalise(clean))) break;
+        s.teams.push({ id: makeToken(8), name: clean, connected: false, lastSeen: Date.now() });
+        break;
+      }
+      case "set_manual_score": {
+        if (s.scoring !== "paper") break;
+        if (!s.teams.some((t) => t.id === a.teamId)) break;
+        if (a.roundIdx >= s.quiz.rounds.length) break;
+        s.manualScores[`${a.teamId}:${a.roundIdx}`] = a.points;
+        break;
+      }
       case "rename_team": {
         const t = s.teams.find((x) => x.id === a.teamId);
         if (t) t.name = a.name.trim().slice(0, 60);
@@ -296,6 +331,7 @@ export class LiveSession {
         for (const k of Object.keys(s.nomineeAnswers)) if (mine(k)) delete s.nomineeAnswers[k];
         for (const k of Object.keys(s.wagers)) if (mine(k)) delete s.wagers[k];
         for (const k of Object.keys(s.reveals)) if (mine(k)) delete s.reveals[k];
+        for (const k of Object.keys(s.manualScores)) if (mine(k)) delete s.manualScores[k];
         s.tiebreakTeams = s.tiebreakTeams.filter((id) => id !== a.teamId);
         delete s.tiebreakAnswers[a.teamId];
         break;

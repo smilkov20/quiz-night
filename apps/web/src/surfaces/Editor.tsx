@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2, Check, AlertTriangle, Timer as TimerIcon, Play, Download, Upload, ChevronUp, ChevronDown } from "lucide-react";
-import type { Quiz, Question, Round, Tiebreaker, PowerUp } from "@quiz/shared";
-import { POWER_UP_LABELS } from "@quiz/shared";
+import type { Quiz, Question, Round, Tiebreaker, PowerUp, InfoSlide } from "@quiz/shared";
+import { POWER_UP_LABELS, describeRound, resolveTheme, DEFAULT_THEME } from "@quiz/shared";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Btn, Eyebrow, Panel, Pill, useConfirm } from "../ui/kit";
 import { apiFetch, ApiError } from "../useQuizSocket";
@@ -22,6 +22,7 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [scoring, setScoring] = useState<"devices" | "paper">("devices");
   const [saved, setSaved] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { confirm, dialog } = useConfirm();
@@ -133,6 +134,12 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
       ...quiz,
       rounds: quiz.rounds.map((r) => (r.id !== rid ? r : { ...r, questions: r.questions.filter((q) => q.id !== qid) })),
     });
+
+  const patchSlide = (id: string, patch: Partial<InfoSlide>) =>
+    setQuiz({ ...quiz, infoSlides: (quiz.infoSlides ?? []).map((x) => (x.id === id ? { ...x, ...patch } : x)) });
+
+  const patchTheme = (patch: Partial<NonNullable<Quiz["theme"]>>) =>
+    setQuiz({ ...quiz, theme: { ...quiz.theme, ...patch } });
 
   const patchTiebreaker = (id: string, patch: Partial<Tiebreaker>) =>
     setQuiz({ ...quiz, tiebreakers: quiz.tiebreakers.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
@@ -349,6 +356,11 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
 
                 <div className="mb-3 flex flex-wrap gap-4">
                   <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={Boolean(r.explainRound)}
+                      onChange={(e) => patchRound(r.id, { explainRound: e.target.checked })} />
+                    Explain how this round works before it starts
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={Boolean(r.rapidFire)}
                       onChange={(e) => patchRound(r.id, { rapidFire: e.target.checked })} />
                     Rapid fire — one clock for the whole round
@@ -372,6 +384,21 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                       className="w-14 rounded border px-1 py-0.5 text-sm disabled:opacity-40" style={field} />
                   </label>
                 </div>
+
+                {r.explainRound && (
+                  <div className="mb-3 rounded-md p-2" style={{ background: C.row }}>
+                    <Eyebrow>What the room will be told</Eyebrow>
+                    <ul className="text-xs flex flex-col gap-0.5 mb-2" style={{ color: C.ink }}>
+                      {describeRound(r).map((line, i) => <li key={i}>· {line}</li>)}
+                    </ul>
+                    <input value={r.howItWorks ?? ""} placeholder="Anything else to add (optional)"
+                      onChange={(e) => patchRound(r.id, { howItWorks: e.target.value })}
+                      className="w-full rounded border px-2 py-1 text-sm" style={{ ...field, background: C.card }} />
+                    <p className="text-xs mt-1" style={{ color: C.inkDim }}>
+                      The rest is generated from this round's settings, so it stays true when you change them.
+                    </p>
+                  </div>
+                )}
 
                 {r.answerFormat === "fastest" && (
                   <div className="mb-3 rounded-md p-2" style={{ background: C.row }}>
@@ -538,6 +565,94 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
             )}
           </Panel>
         ))}
+
+        <Panel title="Info pages">
+          <p className="text-xs mb-3" style={{ color: C.inkDim }}>
+            Pages you can put on the screen at any point — house rules, a sponsor,
+            "back in ten". Shown from the host console, not tied to a round.
+          </p>
+          <div className="flex flex-col gap-2">
+            {(quiz.infoSlides ?? []).map((sl, i) => (
+              <div key={sl.id} className="rounded-md p-2" style={{ background: C.row }}>
+                <div className="flex items-start gap-2">
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: C.biroDim, minWidth: 22 }}>{i + 1}</span>
+                  <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                    <input value={sl.title} placeholder="Heading"
+                      onChange={(e) => patchSlide(sl.id, { title: e.target.value })}
+                      className="rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.card }} />
+                    <textarea rows={2} value={sl.body} placeholder="Body text (optional)"
+                      onChange={(e) => patchSlide(sl.id, { body: e.target.value })}
+                      className="rounded border px-2 py-1.5 text-sm resize-y" style={{ ...field, background: C.card }} />
+                    <input value={sl.imageUrl ?? ""} placeholder="Image link (optional)"
+                      onChange={(e) => patchSlide(sl.id, { imageUrl: e.target.value })}
+                      className="rounded border px-2 py-1.5 text-sm" style={{ ...field, background: C.card }} />
+                  </div>
+                  <button onClick={() => setQuiz({ ...quiz, infoSlides: (quiz.infoSlides ?? []).filter((x) => x.id !== sl.id) })}
+                    style={{ color: C.inkDim }}><Trash2 size={14} /></button>
+                </div>
+              </div>
+            ))}
+            <Btn small onClick={() => setQuiz({ ...quiz, infoSlides: [...(quiz.infoSlides ?? []),
+              { id: `i${Date.now()}`, title: "", body: "" }] })}>
+              <Plus size={13} /> Page
+            </Btn>
+          </div>
+        </Panel>
+
+        <Panel title="Look and feel">
+          <p className="text-xs mb-3" style={{ color: C.inkDim }}>
+            Applies to the big screen. The logo also appears on players' phones.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+            {([["page","Background"],["card","Cards"],["ink","Text"],["accent","Accent"],["highlight","Highlighter"]] as const).map(([k, label]) => (
+              <label key={k} className="flex flex-col gap-1">
+                <Eyebrow>{label}</Eyebrow>
+                <div className="flex items-center gap-1.5">
+                  <input type="color" value={resolveTheme(quiz.theme)[k]}
+                    onChange={(e) => patchTheme({ [k]: e.target.value })}
+                    className="rounded border" style={{ width: 34, height: 30, borderColor: C.rule, padding: 0 }} />
+                  <input value={quiz.theme?.[k] ?? ""} placeholder={DEFAULT_THEME[k]}
+                    onChange={(e) => patchTheme({ [k]: e.target.value })}
+                    className="flex-1 min-w-0 rounded border px-2 py-1 text-sm" style={field} />
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1">
+              <Eyebrow>Logo link</Eyebrow>
+              <input value={quiz.theme?.logoUrl ?? ""} placeholder="https://…/logo.png"
+                onChange={(e) => patchTheme({ logoUrl: e.target.value })}
+                className="rounded border px-2 py-1.5 text-sm" style={field} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <Eyebrow>Footer line</Eyebrow>
+              <input value={quiz.theme?.footer ?? ""} placeholder="The Crown & Anchor · Thursdays"
+                onChange={(e) => patchTheme({ footer: e.target.value })}
+                className="rounded border px-2 py-1.5 text-sm" style={field} />
+            </label>
+          </div>
+
+          <div className="mt-4 rounded-lg p-5 text-center relative overflow-hidden"
+            style={{ background: resolveTheme(quiz.theme).page, border: `1px solid ${C.rule}` }}>
+            {quiz.theme?.logoUrl && (
+              <img src={quiz.theme.logoUrl} alt="" className="absolute"
+                style={{ top: 10, left: 12, maxHeight: 26, maxWidth: 90, objectFit: "contain" }} />
+            )}
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, color: resolveTheme(quiz.theme).ink, letterSpacing: "-0.02em" }}>
+              <span style={{ background: resolveTheme(quiz.theme).highlight, padding: "0.02em 0.18em" }}>Round 1</span>
+            </div>
+            <div className="mt-3 mx-auto rounded-lg px-3 py-2 text-sm" style={{
+              background: resolveTheme(quiz.theme).card, color: resolveTheme(quiz.theme).ink, maxWidth: 260 }}>
+              A question would look like this
+            </div>
+            {quiz.theme?.footer && (
+              <div className="absolute text-xs" style={{ bottom: 8, right: 12, color: resolveTheme(quiz.theme).ink, opacity: 0.55 }}>
+                {quiz.theme.footer}
+              </div>
+            )}
+          </div>
+        </Panel>
 
         <Panel title="Tiebreakers">
           <p className="text-xs mb-3" style={{ color: C.inkDim }}>

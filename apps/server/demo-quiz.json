@@ -267,7 +267,8 @@
           "fastestMode": "closest"
         }
       ],
-      "bonusRule": "speed"
+      "bonusRule": "speed",
+      "explainRound": true
     },
     {
       "id": "r5b",
@@ -300,7 +301,8 @@
           "fastestMode": "closest",
           "mediaSource": "none"
         }
-      ]
+      ],
+      "explainRound": true
     },
     {
       "id": "r6",
@@ -370,7 +372,8 @@
       ],
       "allowedPowerUps": [
         "double"
-      ]
+      ],
+      "explainRound": true
     },
     {
       "id": "r7",
@@ -414,7 +417,8 @@
       ],
       "allowedPowerUps": [
         "double"
-      ]
+      ],
+      "explainRound": true
     },
     {
       "id": "r8",
@@ -505,7 +509,8 @@
             "Greenland"
           ]
         }
-      ]
+      ],
+      "explainRound": true
     },
     {
       "id": "r12",
@@ -573,7 +578,8 @@
       ],
       "allowedPowerUps": [
         "double"
-      ]
+      ],
+      "explainRound": true
     },
     {
       "id": "r13",
@@ -669,7 +675,8 @@
           "maxPoints": 2,
           "mediaSource": "none"
         }
-      ]
+      ],
+      "explainRound": true
     },
     {
       "id": "r15",
@@ -713,7 +720,8 @@
             "St Mark's Square floods most winters."
           ]
         }
-      ]
+      ],
+      "explainRound": true
     },
     {
       "id": "r16",
@@ -815,7 +823,8 @@
             "1993"
           ]
         }
-      ]
+      ],
+      "explainRound": true
     }
   ],
   "tiebreakers": [
@@ -835,5 +844,27 @@
       "prompt": "How many steps lead to the very top of the Eiffel Tower?",
       "correct": "1665"
     }
-  ]
+  ],
+  "infoSlides": [
+    {
+      "id": "i1",
+      "title": "House Rules",
+      "body": "No phones for looking things up — only for answering. One device per team, unless you're a nominee. The host is always right, even when wrong."
+    },
+    {
+      "id": "i2",
+      "title": "Back in 10 minutes",
+      "body": "Bar's open. Scores are being totted up."
+    },
+    {
+      "id": "i3",
+      "title": "Thanks for coming",
+      "body": "Same time next week. Bring more people."
+    }
+  ],
+  "theme": {
+    "footer": "The Crown & Anchor · Thursdays",
+    "accent": "#2A47C4",
+    "highlight": "#F5E45C"
+  }
 }

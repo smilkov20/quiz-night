@@ -9,7 +9,8 @@
     "start": "pnpm --filter @quiz/server start",
     "typecheck": "pnpm -r typecheck",
     "test:e2e": "cd apps/server && node e2e.mjs",
-    "simulate": "pnpm --filter @quiz/server simulate"
+    "simulate": "pnpm --filter @quiz/server simulate",
+    "hash-password": "pnpm --filter @quiz/server hash-password"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

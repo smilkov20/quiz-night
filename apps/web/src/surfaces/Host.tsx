@@ -3,11 +3,12 @@ import {
   Play, RotateCcw, Lock, Unlock, ChevronRight, ChevronLeft, Users, Trophy,
   ClipboardCheck, Eye, Flag, Trash2, AlertTriangle, Check, Timer as TimerIcon,
   Music, Video, Type, ToggleLeft, Image as ImageIcon, Monitor, Copy, Coffee, Power,
-  Download, RefreshCw, Ban,
+  Download, RefreshCw, Ban, Presentation, Pencil, Smartphone, EyeOff,
 } from "lucide-react";
 import {
   answerKey, maxPointsOf, normalise, scoreSort, scoreOrder, scoreList, scoreMatch,
   scoreMulti, parseListAnswer, describeAnswer, type Round, type Snapshot,
+  type InfoSlide,
 } from "@quiz/shared";
 import { C, FONT_DATA, FONT_DISPLAY } from "../ui/theme";
 import { Btn, Countdown, Eyebrow, Leaderboard, Panel, Pill, useToasts, useConfirm } from "../ui/kit";
@@ -158,6 +159,9 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
             <Pill tone={status === "open" ? "live" : "danger"}>{status}</Pill>
             <Pill tone="dim">{s.state.replace("_", " ")}{s.state === "in_round" ? ` · ${s.phase}` : ""}</Pill>
             <span className="ml-auto flex items-center gap-2">
+              <InfoSlides slides={s.quiz.infoSlides ?? []} showing={s.state === "info"}
+                onShow={(id) => host({ action: "show_info", slideId: id })}
+                onHide={() => host({ action: "hide_info" })} />
               <Btn small onClick={downloadScores} title="Save the scores in case the server restarts">
                 <Download size={13} /> Scores
               </Btn>
@@ -165,7 +169,32 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
             </span>
           </div>
 
-          {s.state === "lobby" && (
+          {s.state === "lobby" && s.scoring === "paper" && (
+            <Panel title="Teams">
+              <p className="text-sm mb-3" style={{ color: C.inkDim }}>
+                Nobody joins on a phone. Type the team names in as they arrive, then
+                run the quiz from the big screen and mark their paper between rounds.
+              </p>
+              <AddTeam onAdd={(name) => host({ action: "add_team", name })} />
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {s.teams.map((t) => (
+                  <span key={t.id} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+                    style={{ background: C.row, border: `1px solid ${C.rule}`, fontWeight: 600 }}>
+                    {t.name}
+                    <button onClick={() => host({ action: "remove_team", teamId: t.id })}
+                      style={{ color: C.inkDim }}><Trash2 size={12} /></button>
+                  </span>
+                ))}
+              </div>
+              <div className="mt-4">
+                <Btn tone="primary" onClick={() => host({ action: "begin_round" })} disabled={s.teams.length < 1}>
+                  Start round 1 <ChevronRight size={14} />
+                </Btn>
+              </div>
+            </Panel>
+          )}
+
+          {s.state === "lobby" && s.scoring === "devices" && (
             <>
               <Panel title="Lobby">
                 <div className="flex flex-col sm:flex-row gap-5 items-center">
@@ -236,7 +265,9 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                   </div>
                 )}
                 <div className="text-sm" style={{ color: C.inkDim }}>
-                  {round.wager && s.phase === "revealed"
+                  {s.scoring === "paper"
+                    ? "Teams are answering on paper"
+                    : round.wager && s.phase === "revealed"
                     ? `${s.teams.filter((t) => s.wagers?.[answerKey(t.id, question.id)] != null).length} of ${s.teams.length} staked`
                     : `${answered} of ${s.teams.length} answered`}
                 </div>
@@ -306,16 +337,76 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                     the break won't end on its own.
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <Btn onClick={() => setGrading(true)}>
-                      <ClipboardCheck size={14} /> Mark answers
-                      {snapshot.ungradedCount > 0 && <span style={{ color: C.marker }}>({snapshot.ungradedCount})</span>}
-                    </Btn>
+                    {s.scoring === "devices" && (
+                      <Btn onClick={() => setGrading(true)}>
+                        <ClipboardCheck size={14} /> Mark answers
+                        {snapshot.ungradedCount > 0 && <span style={{ color: C.marker }}>({snapshot.ungradedCount})</span>}
+                      </Btn>
+                    )}
                     <Btn onClick={() => host({ action: "extend_break", minutes: 5 })}>+5 min</Btn>
                     <Btn tone="primary" onClick={() => host({ action: "end_break" })}>
                       Back to the quiz <ChevronRight size={14} />
                     </Btn>
                   </div>
                 </div>
+              </div>
+            </Panel>
+          )}
+
+          {s.scoring === "paper" && s.state !== "lobby" && (
+            <Panel title="Scores"
+              right={<Pill tone="dim">enter points per round</Pill>}>
+              <div className="overflow-x-auto">
+                <table className="text-sm" style={{ borderCollapse: "collapse", minWidth: "100%" }}>
+                  <thead>
+                    <tr>
+                      <th className="text-left px-2 py-1.5" style={{ color: C.inkDim, fontWeight: 700 }}>Team</th>
+                      {s.quiz.rounds.map((r, i) => (
+                        <th key={r.id} className="px-1 py-1.5 text-center"
+                          style={{ color: i === s.roundIdx ? C.biro : C.inkDim, fontWeight: 700, minWidth: 46 }}
+                          title={r.title}>
+                          {i + 1}
+                        </th>
+                      ))}
+                      <th className="px-2 py-1.5 text-right" style={{ color: C.inkDim, fontWeight: 700 }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.teams.map((t) => (
+                      <tr key={t.id} style={{ borderTop: `1px solid ${C.rule}` }}>
+                        <td className="px-2 py-1.5 truncate" style={{ fontWeight: 600, maxWidth: 160 }}>{t.name}</td>
+                        {s.quiz.rounds.map((r, i) => (
+                          <td key={r.id} className="px-1 py-1">
+                            <input
+                              type="number" inputMode="numeric"
+                              value={s.manualScores?.[`${t.id}:${i}`] ?? ""}
+                              placeholder="–"
+                              onChange={(e) => host({
+                                action: "set_manual_score", teamId: t.id, roundIdx: i,
+                                points: Math.round(Number(e.target.value) || 0),
+                              })}
+                              className="w-12 rounded border px-1 py-1 text-center"
+                              style={{
+                                background: i === s.roundIdx ? C.card : C.row,
+                                borderColor: i === s.roundIdx ? C.biro : C.rule,
+                                color: C.ink,
+                              }} />
+                          </td>
+                        ))}
+                        <td className="px-2 py-1.5 text-right"
+                          style={{ fontFamily: FONT_DATA, fontWeight: 700, color: C.biro }}>
+                          {snapshot.standings.find((x) => x.teamId === t.id)?.score ?? 0}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 items-center">
+                <AddTeam onAdd={(name) => host({ action: "add_team", name })} compact />
+                <span className="text-xs" style={{ color: C.inkDim }}>
+                  Round {s.roundIdx + 1} is highlighted. Leave a cell blank for nothing scored.
+                </span>
               </div>
             </Panel>
           )}
@@ -327,10 +418,12 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                 mark the sheets while the room's still talking.
               </p>
               <div className="flex flex-wrap gap-2">
-                <Btn onClick={() => setGrading(true)}>
-                  <ClipboardCheck size={14} /> Mark answers
-                  {snapshot.ungradedCount > 0 && <span style={{ color: C.marker }}>({snapshot.ungradedCount})</span>}
-                </Btn>
+                {s.scoring === "devices" && (
+                  <Btn onClick={() => setGrading(true)}>
+                    <ClipboardCheck size={14} /> Mark answers
+                    {snapshot.ungradedCount > 0 && <span style={{ color: C.marker }}>({snapshot.ungradedCount})</span>}
+                  </Btn>
+                )}
                 <Btn onClick={() => host({ action: "show_leaderboard" })}><Trophy size={14} /> Show leaderboard</Btn>
                 <BreakButton onBreak={(m) => host({ action: "start_break", minutes: m })} />
                 <Btn tone="primary" onClick={() => host({ action: "next_round" })}>
@@ -354,7 +447,9 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
               )}
               <Leaderboard standings={snapshot.standings} />
               <div className="flex flex-wrap gap-2 mt-4">
-                <Btn onClick={() => setGrading(true)}><ClipboardCheck size={14} /> Mark answers</Btn>
+                {s.scoring === "devices" && (
+                  <Btn onClick={() => setGrading(true)}><ClipboardCheck size={14} /> Mark answers</Btn>
+                )}
                 <BreakButton onBreak={(m) => host({ action: "start_break", minutes: m })} />
                 {s.state === "finished" && (
                   <Btn tone="danger" onClick={() => void closeRoom()}>
@@ -531,6 +626,45 @@ function downloadScores(snapshot: Snapshot) {
   URL.revokeObjectURL(a.href);
 }
 
+function AddTeam({ onAdd, compact }: { onAdd: (name: string) => void; compact?: boolean }) {
+  const [name, setName] = useState("");
+  const submit = () => { if (name.trim()) { onAdd(name.trim()); setName(""); } };
+  return (
+    <span className="inline-flex items-center gap-2">
+      <input value={name} onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+        placeholder="Team name" maxLength={60}
+        className="rounded-md border px-2 py-1.5 text-sm"
+        style={{ background: C.card, borderColor: C.rule, color: C.ink, width: compact ? 150 : 220 }} />
+      <Btn small onClick={submit} disabled={!name.trim()}><Users size={13} /> Add</Btn>
+    </span>
+  );
+}
+
+function InfoSlides({ slides, showing, onShow, onHide }: {
+  slides: InfoSlide[]; showing: boolean;
+  onShow: (id: string) => void; onHide: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (slides.length === 0) return null;
+  if (showing) {
+    return <Btn small tone="danger" onClick={onHide}><Presentation size={13} /> Back to the quiz</Btn>;
+  }
+  if (!open) {
+    return <Btn small onClick={() => setOpen(true)}><Presentation size={13} /> Show a page</Btn>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap">
+      {slides.map((sl) => (
+        <Btn key={sl.id} small tone="primary" onClick={() => { onShow(sl.id); setOpen(false); }}>
+          {sl.title || "Untitled"}
+        </Btn>
+      ))}
+      <Btn small onClick={() => setOpen(false)}>Cancel</Btn>
+    </span>
+  );
+}
+
 function PresenterControls({ session, compact }: { session: Snapshot["session"]; compact?: boolean }) {
   const [copied, setCopied] = useState(false);
   const url = `${window.location.origin}/present/${session.joinCode}/${session.presenterToken}`;
@@ -684,14 +818,36 @@ function Grading({ snapshot, onClose, onAward }: {
                 return ax - ay;
               });
             }
+            const answerText = describeAnswer(round, q);
             const suggested = (v: string) =>
               normalise(v) === normalise(q.correct) || q.accepted.some((x) => normalise(x) === normalise(v));
 
             return (
               <div key={q.id}>
-                <div className="mb-2">
-                  <div className="text-sm" style={{ color: C.inkDim }}>{q.prompt}</div>
-                  <div style={{ color: C.correct, fontWeight: 600 }}>{describeAnswer(round, q) || "—"}</div>
+                {/* The answer key, stated plainly. Marking happens with a room
+                    waiting, so it shouldn't be something you have to hunt for. */}
+                <div className="mb-3 rounded-lg px-3 py-2.5"
+                  style={{ background: C.row, borderLeft: `4px solid ${answerText ? C.correct : C.marker}` }}>
+                  <div className="text-sm mb-1.5" style={{ color: C.inkDim }}>{q.prompt}</div>
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-xs uppercase"
+                      style={{ color: C.inkDim, letterSpacing: "0.14em", fontWeight: 700 }}>
+                      Answer
+                    </span>
+                    <span style={{ color: answerText ? C.correct : C.marker, fontWeight: 700, fontSize: 17 }}>
+                      {answerText || "none set in the editor — nothing to mark against"}
+                    </span>
+                  </div>
+                  {q.accepted.length > 0 && (
+                    <div className="text-xs mt-1.5" style={{ color: C.inkDim }}>
+                      Also accept: <span style={{ color: C.ink }}>{q.accepted.join(", ")}</span>
+                    </div>
+                  )}
+                  {round.answerFormat === "nominee" && (
+                    <div className="text-xs mt-1.5" style={{ color: C.inkDim }}>
+                      Each team is marked against their own nominee, shown on their row.
+                    </div>
+                  )}
                 </div>
                 {list.length === 0 && <p className="text-sm" style={{ color: C.inkDim }}>No answers submitted.</p>}
                 <div className="flex flex-col gap-2">
@@ -699,7 +855,10 @@ function Grading({ snapshot, onClose, onAward }: {
                     <div key={i} className="flex flex-wrap items-center gap-2 rounded-md px-3 py-2"
                       style={{ background: C.card, border: `1px solid ${suggested(cl.display) ? C.correct : C.rule}` }}>
                       <div className="flex-1 min-w-32">
-                        <div style={{ fontWeight: 600 }}>{cl.display}</div>
+                        <div className="flex items-center gap-1.5" style={{ fontWeight: 600 }}>
+                          {suggested(cl.display) && <Check size={14} strokeWidth={3} style={{ color: C.correct }} />}
+                          {cl.display}
+                        </div>
                         <div className="text-xs" style={{ color: C.inkDim }}>
                           {cl.names.join(", ")}{cl.sub ? ` · ${cl.sub}` : ""}
                           {round.answerFormat === "fastest" && i === 0 ? " · first in" : ""}

@@ -8,11 +8,22 @@ import { CLOSE_NO_ROOM, CLOSE_UNAUTHORISED } from "@quiz/shared";
 import { LiveSession } from "./session";
 
 const PORT = Number(process.env.PORT ?? 8787);
+import { hashPassword, isHash, verifyPassword, issueToken, verifyToken,
+  tooManyFailures, recordFailure, clientIp } from "./auth";
+
 const RAW_HOST_PASSWORD = process.env.HOST_PASSWORD ?? "";
 const HOST_PASSWORD = RAW_HOST_PASSWORD.trim();
 if (RAW_HOST_PASSWORD !== HOST_PASSWORD) {
   console.warn("HOST_PASSWORD had surrounding whitespace; using the trimmed value.");
 }
+if (HOST_PASSWORD && !isHash(HOST_PASSWORD)) {
+  console.warn(
+    "HOST_PASSWORD is stored in plain text. Run `pnpm hash-password` and put the\n" +
+    "  result in HOST_PASSWORD instead, so the password itself isn't readable in\n" +
+    "  your hosting dashboard. Both forms work."
+  );
+}
+void hashPassword;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "*").split(",").map((s) => s.trim());
 
 if (!HOST_PASSWORD) {
@@ -33,10 +44,45 @@ function newCode(): string {
   throw new Error("Could not allocate a join code");
 }
 
+/** Accepts either a scrypt hash (preferred) or plaintext (so an existing
+    deployment keeps working). Both paths are constant-time. */
 function checkPassword(supplied: string): boolean {
-  if (!supplied || supplied.length !== HOST_PASSWORD.length) return false;
-  return timingSafeEqual(Buffer.from(supplied), Buffer.from(HOST_PASSWORD));
+  return verifyPassword(supplied, HOST_PASSWORD);
 }
+
+/** Requests carry a short-lived token rather than the password itself. The
+    password is only ever sent once, to /api/auth. */
+function checkCredential(supplied: string): boolean {
+  return verifyToken(supplied, HOST_PASSWORD) || checkPassword(supplied);
+}
+
+/** Twelve hours: longer than any quiz, shorter than a leaked token is useful. */
+const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+
+
+/** Applied to every response, JSON and static alike. `img-src https:` is
+    deliberate — hosts paste their own picture and logo URLs — but scripts and
+    frames are locked to this origin plus YouTube. */
+const SECURITY_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    "script-src 'self' https://www.youtube.com https://s.ytimg.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' https:",
+    "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+    "connect-src 'self' ws: wss:",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; "),
+};
 
 function corsHeaders(origin: string | undefined): Record<string, string> {
   const ok = ALLOWED_ORIGINS.includes("*") || (origin && ALLOWED_ORIGINS.includes(origin));
@@ -49,7 +95,7 @@ function corsHeaders(origin: string | undefined): Record<string, string> {
 }
 
 const send = (res: ServerResponse, status: number, body: unknown, origin?: string) => {
-  res.writeHead(status, { "Content-Type": "application/json", ...corsHeaders(origin) });
+  res.writeHead(status, { "Content-Type": "application/json", ...SECURITY_HEADERS, ...corsHeaders(origin) });
   res.end(JSON.stringify(body));
 };
 
@@ -82,21 +128,31 @@ const server = createServer(async (req, res) => {
   /* Lets the sign-in screen check the password up front. Without this the
      first failure happens at "Open the room", long after the mistake. */
   if (url.pathname === "/api/auth" && req.method === "POST") {
+    const ip = clientIp(req.headers, req.socket.remoteAddress);
+    const AUTH_WINDOW = 15 * 60 * 1000;
+    // Ten wrong guesses a quarter-hour. Signing in correctly costs nothing,
+    // so a host refreshing their console is never locked out.
+    if (tooManyFailures(`auth:${ip}`, 10, AUTH_WINDOW)) {
+      return send(res, 429, { error: "Too many attempts — wait a few minutes" }, origin);
+    }
     const auth = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
-    if (!checkPassword(auth)) return send(res, 403, { error: "Wrong password" }, origin);
-    return send(res, 200, { ok: true }, origin);
+    if (!checkPassword(auth)) {
+      recordFailure(`auth:${ip}`, AUTH_WINDOW);
+      return send(res, 403, { error: "Wrong password" }, origin);
+    }
+    return send(res, 200, { ok: true, token: issueToken(HOST_PASSWORD, TOKEN_TTL_MS), expiresIn: TOKEN_TTL_MS }, origin);
   }
 
   /* Open a room. The quiz travels in the request body because quiz content
      lives in the host's browser — there is no server-side quiz store. */
   if (url.pathname === "/api/sessions" && req.method === "POST") {
     const auth = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
-    if (!checkPassword(auth)) return send(res, 403, { error: "Unauthorised" }, origin);
+    if (!checkCredential(auth)) return send(res, 403, { error: "Unauthorised" }, origin);
     try {
-      const { quiz } = await readJson<{ quiz: Quiz }>(req);
+      const { quiz, scoring } = await readJson<{ quiz: Quiz; scoring?: "devices" | "paper" }>(req);
       if (!quiz?.rounds?.length) return send(res, 400, { error: "Quiz has no rounds" }, origin);
       const code = newCode();
-      const room = new LiveSession(quiz, code);
+      const room = new LiveSession(quiz, code, scoring === "paper" ? "paper" : "devices");
       room.onClosed = () => { rooms.delete(code); console.log(`[room] closed ${code}`); };
       rooms.set(code, room);
       console.log(`[room] opened ${code} — "${quiz.title}"`);
@@ -117,10 +173,20 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/api/join" && req.method === "POST") {
+    const joinIp = clientIp(req.headers, req.socket.remoteAddress);
+    const JOIN_WINDOW = 10 * 60 * 1000;
+    // Only wrong codes count, so a whole venue behind one wifi address can
+    // join freely while code-guessing still gets shut down.
+    if (tooManyFailures(`join:${joinIp}`, 20, JOIN_WINDOW)) {
+      return send(res, 429, { error: "Too many attempts — wait a few minutes" }, origin);
+    }
     try {
       const { code, name, token, asNomineeFor } = await readJson<{ code: string; name: string; token?: string; asNomineeFor?: string }>(req);
       const room = rooms.get((code ?? "").toUpperCase());
-      if (!room) return send(res, 404, { error: "No room with that code" }, origin);
+      if (!room) {
+        recordFailure(`join:${joinIp}`, JOIN_WINDOW);
+        return send(res, 404, { error: "No room with that code" }, origin);
+      }
       const result = asNomineeFor
         ? room.joinAsNominee(asNomineeFor, name ?? "")
         : room.join(name ?? "", token ?? null);
@@ -173,6 +239,7 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
     res.writeHead(200, {
       "Content-Type": type,
       "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
+      ...SECURITY_HEADERS,
     });
     res.end(body);
   } catch {
@@ -204,7 +271,7 @@ server.on("upgrade", (req, socket, head) => {
 
   // A browser can't set headers on a WebSocket handshake, so the host key
   // and the presenter token ride in the query string.
-  if (role === "host" && !checkPassword(url.searchParams.get("key") ?? "")) {
+  if (role === "host" && !checkCredential(url.searchParams.get("key") ?? "")) {
     return reject(CLOSE_UNAUTHORISED, "bad-host-key");
   }
   if (role === "presenter" && url.searchParams.get("token") !== room.session.presenterToken) {

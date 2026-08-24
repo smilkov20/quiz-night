@@ -126,6 +126,51 @@ single-owner in-memory model with no server to keep awake, and it's free at this
 scale. It needs a Cloudflare account, which is what pushed us to Node. Same wire
 protocol, so the frontend works against either.
 
+## Security
+
+The password is **not in the code** — it comes from the `HOST_PASSWORD`
+environment variable on the service, so each deployment has its own and
+changing it is a dashboard edit and a restart. The server refuses to start
+without it.
+
+**Store a hash, not the password.** You can't encrypt a password you need to
+check, but you can hash it one way:
+
+```bash
+pnpm hash-password
+```
+
+Put the `scrypt$…` output in `HOST_PASSWORD`. You still sign in with the
+original password; the hash is what the server holds, so anyone with access to
+your hosting dashboard sees a hash rather than the password. Plaintext still
+works — the server just warns at startup — so an existing deployment won't lock
+itself out.
+
+What else is in place:
+
+- **The password is sent once.** `/api/auth` exchanges it for a signed,
+  12-hour token; that token is what travels afterwards. This matters most for
+  the WebSocket, where credentials ride in the query string and would otherwise
+  end up in proxy and access logs. The signing key is derived from the stored
+  credential, so changing the password invalidates every existing token.
+- **Constant-time comparison** on every credential check, hashed or plain.
+- **Rate limiting on failures only** — ten wrong passwords per quarter-hour,
+  twenty wrong join codes per ten minutes, per address. Successful joins are
+  never charged, because a whole venue shares one wifi address and charging
+  them would lock out the back of the room.
+- **Security headers on every response**, static files included: CSP with
+  `frame-ancestors 'none'`, `nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, HSTS.
+- **The answer key is redacted per recipient** (see above) — the single most
+  important protection here, since the realistic attacker is a guest with
+  devtools.
+
+What this is **not**: it's a shared password guarding a pub quiz. There are no
+user accounts, no audit log, and anyone with the password is the host. Presenter
+and team links are unguessable capability URLs — treat them as secrets, because
+anyone holding one is in. That is the right size of protection for the problem,
+but don't reuse the password anywhere that matters.
+
 ## Before a live quiz
 
 - **Dry run on the venue's wifi** with two or three real phones. Everything

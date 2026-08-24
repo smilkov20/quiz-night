@@ -21,6 +21,8 @@ export const HostActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start_break"), minutes: z.number().int().min(1).max(60) }),
   z.object({ action: z.literal("extend_break"), minutes: z.number().int().min(1).max(60) }),
   z.object({ action: z.literal("end_break") }),
+  z.object({ action: z.literal("show_info"), slideId: z.string() }),
+  z.object({ action: z.literal("hide_info") }),
   z.object({ action: z.literal("finish") }),
   /* Ends the session outright: every device is disconnected and sent back to
      the join screen. Distinct from "finish", which shows the final scores. */
@@ -35,6 +37,14 @@ export const HostActionSchema = z.discriminatedUnion("action", [
     points: z.number().int().min(0).max(100),
   }),
   z.object({ action: z.literal("rename_team"), teamId: z.string(), name: z.string().min(1).max(60) }),
+  /* paper mode: the host owns the team list and the scoreboard. */
+  z.object({ action: z.literal("add_team"), name: z.string().min(1).max(60) }),
+  z.object({
+    action: z.literal("set_manual_score"),
+    teamId: z.string(),
+    roundIdx: z.number().int().min(0).max(50),
+    points: z.number().int().min(-999).max(999),
+  }),
   z.object({ action: z.literal("remove_team"), teamId: z.string() }),
   z.object({ action: z.literal("relink_team"), teamId: z.string() }),
   /* A question that turns out to be wrong or ambiguous: nobody scores, and

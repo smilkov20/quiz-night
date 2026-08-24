@@ -64,10 +64,13 @@ function PasswordGate({ onKey }: { onKey: (key: string) => void }) {
     setBusy(true);
     setErr(null);
     try {
-      await apiFetch("/api/auth", { method: "POST" }, value.trim());
-      onKey(value.trim());
-    } catch {
-      setErr("That password wasn't accepted.");
+      // The password is sent once and swapped for an expiring token; that's
+      // what gets stored and what travels on every later request.
+      const res = await apiFetch<{ token?: string }>("/api/auth", { method: "POST" }, value.trim());
+      onKey(res.token ?? value.trim());
+    } catch (e) {
+      const msg = (e as Error).message;
+      setErr(msg.includes("Too many") ? msg : "That password wasn't accepted.");
       setBusy(false);
     }
   };

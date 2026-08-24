@@ -1,4 +1,4 @@
-import { describeAnswer } from "@quiz/shared";
+import { describeAnswer, describeRound, resolveTheme } from "@quiz/shared";
 import { useEffect, useState } from "react";
 import { C, FONT_DISPLAY } from "../ui/theme";
 import { Countdown, Leaderboard } from "../ui/kit";
@@ -30,7 +30,8 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
       </Shell>
     );
   }
-  if (!snapshot) return <Shell><p style={{ color: C.inkDim }}>Connecting…</p></Shell>;
+  if (!snapshot) return <Shell theme={undefined}><p style={{ color: C.inkDim }}>Connecting…</p></Shell>;
+  const T = resolveTheme(snapshot.session.quiz.theme);
   const s = snapshot.session;
   const round = s.quiz.rounds[s.roundIdx];
   const question = round?.questions[s.questionIdx];
@@ -63,8 +64,31 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
           </p>
         </button>
       )}
-      <Shell>
-        {s.state === "lobby" && (
+      <Shell theme={T}>
+        {s.state === "lobby" && s.scoring === "paper" && (
+          <>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: "clamp(34px,7vw,84px)", lineHeight: 1.05, letterSpacing: "-0.02em" }}>
+              {s.quiz.title}
+            </div>
+            <p className="mt-6 text-lg" style={{ color: C.inkDim }}>
+              {s.teams.length === 0
+                ? "Give your team name to the quizmaster"
+                : `${s.teams.length} team${s.teams.length === 1 ? "" : "s"} in — pens and paper at the ready`}
+            </p>
+            {s.teams.length > 0 && (
+              <div className="mt-8 flex flex-wrap gap-2 justify-center">
+                {s.teams.map((t) => (
+                  <span key={t.id} className="rounded-full px-4 py-2"
+                    style={{ background: T.card, fontSize: "clamp(14px,1.6vw,20px)", fontWeight: 600 }}>
+                    {t.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {s.state === "lobby" && s.scoring === "devices" && (
           <>
             <div className="text-sm uppercase mb-4" style={{ color: C.biro, letterSpacing: "0.3em", fontWeight: 700 }}>
               Join the quiz
@@ -84,9 +108,21 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
               Round {s.roundIdx + 1} · Question {s.questionIdx + 1}
             </div>
             {s.phase === "idle" ? (
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: "clamp(32px,6vw,68px)", lineHeight: 1.15, letterSpacing: "-0.02em" }}>
-                <span style={{ background: C.high, padding: "0.02em 0.18em" }}>{round.title}</span>
-              </div>
+              <>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: "clamp(32px,6vw,68px)", lineHeight: 1.15, letterSpacing: "-0.02em" }}>
+                  <span style={{ background: T.highlight, padding: "0.02em 0.18em" }}>{round.title}</span>
+                </div>
+                {round.explainRound && (
+                  <ul className="mt-8 mx-auto text-left flex flex-col gap-2" style={{ maxWidth: "40ch" }}>
+                    {describeRound(round).map((line, i) => (
+                      <li key={i} className="rounded-lg px-4 py-2"
+                        style={{ background: T.card, fontSize: "clamp(15px,1.7vw,22px)", fontWeight: 500 }}>
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             ) : (
               <p style={{ fontSize: playing ? "clamp(17px,2.2vw,26px)" : "clamp(26px,4.4vw,52px)", fontWeight: 600, lineHeight: 1.15 }}>
                 {round.wager && s.phase === "revealed" ? "Place your stakes" : question.prompt}
@@ -147,6 +183,27 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
             )}
           </>
         )}
+
+        {s.state === "info" && (() => {
+          const slide = (s.quiz.infoSlides ?? []).find((x) => x.id === s.infoSlideId);
+          if (!slide) return null;
+          return (
+            <>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: "clamp(30px,5.4vw,64px)", lineHeight: 1.1, letterSpacing: "-0.02em" }}>
+                {slide.title}
+              </div>
+              {slide.imageUrl && (
+                <img src={slide.imageUrl} alt="" className="mt-6 mx-auto rounded-xl"
+                  style={{ maxHeight: "40vh", maxWidth: "100%", objectFit: "contain" }} />
+              )}
+              {slide.body && (
+                <p className="mt-6 mx-auto" style={{ fontSize: "clamp(17px,2.2vw,28px)", lineHeight: 1.5, maxWidth: "44ch", color: T.ink }}>
+                  {slide.body}
+                </p>
+              )}
+            </>
+          );
+        })()}
 
         {s.state === "break" && (
           <>
@@ -220,10 +277,21 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children, theme }: { children: React.ReactNode; theme?: ReturnType<typeof resolveTheme> }) {
+  const T = theme ?? resolveTheme(undefined);
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 sm:p-12" style={{ background: C.page, color: C.ink }}>
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 sm:p-12 relative"
+      style={{ background: T.page, color: T.ink }}>
+      {T.logoUrl && (
+        <img src={T.logoUrl} alt="" className="absolute"
+          style={{ top: 24, left: 24, maxHeight: 72, maxWidth: 220, objectFit: "contain" }} />
+      )}
       <div className="w-full max-w-4xl text-center">{children}</div>
+      {T.footer && (
+        <div className="absolute text-sm" style={{ bottom: 20, right: 28, color: T.ink, opacity: 0.55 }}>
+          {T.footer}
+        </div>
+      )}
     </div>
   );
 }

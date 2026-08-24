@@ -33,6 +33,7 @@ const open = (url) => new Promise((res, rej) => {
 });
 const last = (ws) => ws.snaps[ws.snaps.length - 1];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+let note_fail = null;
 const assert = (c, m) => { if (!c) throw new Error("FAILED: " + m); console.log("  ok " + m); };
 
 // Auth must actually be enforced.
@@ -707,6 +708,148 @@ rAct({ action: "relink_team", teamId: rT.teamId }); await wait(120);
 const replacement = await post("/api/join", { code: rs.joinCode, name: "Butterfingers" });
 assert(replacement.teamId === rT.teamId, "a replacement phone takes over the same team, keeping its score");
 assert(last(rHost).session.teams.length === 1, "re-linking doesn't create a second team");
+
+/* Info pages interrupt and hand back, like a break. */
+const infoQuiz = { ...secretQuiz, id:"info",
+  infoSlides:[{id:"i1",title:"House rules",body:"No phones. Obviously ironic."}],
+  theme:{ accent:"#B4472A", footer:"The Crown & Anchor" },
+  rounds:[secretQuiz.rounds[0]] };
+const inf = await post("/api/sessions", { quiz: infoQuiz }, KEY);
+const infHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${inf.joinCode}&role=host&key=${KEY}`);
+const infPres = await open(`ws://127.0.0.1:${PORT}/ws?code=${inf.joinCode}&role=presenter&token=${inf.presenterToken}`);
+await wait(150);
+const iAct = (p2) => infHost.send(JSON.stringify({ type: "host", payload: p2 }));
+iAct({ action: "begin_round" }); await wait(70);
+const wasShowing = last(infHost).session.state;
+iAct({ action: "show_info", slideId: "i1" }); await wait(120);
+assert(last(infHost).session.state === "info", "the host can put an info page on screen");
+assert(last(infPres).session.state === "info", "the projector follows onto the info page");
+assert(last(infPres).session.infoSlideId === "i1", "the projector knows which page");
+iAct({ action: "show_info", slideId: "nope" }); await wait(100);
+assert(last(infHost).session.infoSlideId === "i1", "an unknown page id is ignored");
+iAct({ action: "hide_info" }); await wait(120);
+assert(last(infHost).session.state === wasShowing, `dismissing hands back to where it interrupted (${wasShowing})`);
+assert(last(infPres).session.quiz.theme?.footer === "The Crown & Anchor",
+  "the theme reaches the projector");
+
+/* Marking needs the answer key and the accepted spellings, so the host's
+   snapshot must carry both. */
+const markQuiz = { ...secretQuiz, id:"mark", infoSlides:[], theme:{}, rounds:[
+  { id:"mr", order:0, title:"Marking", answerFormat:"text", mediaType:"none",
+    timeLimit:30, defaultMaxPoints:1,
+    questions:[{ id:"mq", order:0, prompt:"Symbol W?", correct:"Tungsten",
+                 accepted:["wolfram","tungstene"], maxPoints:null, mediaSource:"none" }] }]};
+const mk = await post("/api/sessions", { quiz: markQuiz }, KEY);
+const mkHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${mk.joinCode}&role=host&key=${KEY}`);
+await wait(150);
+const mkQ = last(mkHost).session.quiz.rounds[0].questions[0];
+assert(mkQ.correct === "Tungsten", "the marking screen has the configured answer");
+assert(mkQ.accepted.join() === "wolfram,tungstene", "and the accepted spellings alongside it");
+
+/* Paper mode: no team devices at all. The host owns the team list and the
+   scoreboard, and the projector still runs the quiz. */
+const paperQuiz = { ...secretQuiz, id:"paper", infoSlides:[], theme:{}, rounds:[
+  { id:"pr1", order:0, title:"One", answerFormat:"text", mediaType:"none",
+    timeLimit:30, defaultMaxPoints:1,
+    questions:[{ id:"pq1", order:0, prompt:"P", correct:"A", accepted:[], maxPoints:null, mediaSource:"none" }] },
+  { id:"pr2", order:1, title:"Two", answerFormat:"text", mediaType:"none",
+    timeLimit:30, defaultMaxPoints:1,
+    questions:[{ id:"pq2", order:0, prompt:"P", correct:"B", accepted:[], maxPoints:null, mediaSource:"none" }] }]};
+const pap = await post("/api/sessions", { quiz: paperQuiz, scoring: "paper" }, KEY);
+const papHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${pap.joinCode}&role=host&key=${KEY}`);
+const papPres = await open(`ws://127.0.0.1:${PORT}/ws?code=${pap.joinCode}&role=presenter&token=${pap.presenterToken}`);
+await wait(150);
+assert(last(papHost).session.scoring === "paper", "a room can be opened in paper mode");
+
+assert(await rejects("/api/join", { code: pap.joinCode, name: "Chancers" }),
+  "a phone can't join a paper quiz");
+
+const pAct = (p2) => papHost.send(JSON.stringify({ type: "host", payload: p2 }));
+pAct({ action: "add_team", name: "The Regulars" });
+pAct({ action: "add_team", name: "Bar Staff" });
+pAct({ action: "add_team", name: "The Regulars" });   // duplicate
+await wait(180);
+const pTeams = last(papHost).session.teams;
+assert(pTeams.length === 2, `the host adds teams by hand (got ${pTeams.length})`);
+assert(last(papPres).session.teams.length === 2, "the projector shows the team list instead of a join code");
+
+pAct({ action: "begin_round" }); await wait(70);
+pAct({ action: "reveal_question" }); await wait(70);
+pAct({ action: "start_timer" }); await wait(70);
+pAct({ action: "lock" }); await wait(70);
+pAct({ action: "next_question" }); await wait(90);
+assert(last(papHost).ungradedCount === 0, "nothing sits waiting to be marked in paper mode");
+
+pAct({ action: "set_manual_score", teamId: pTeams[0].id, roundIdx: 0, points: 7 });
+pAct({ action: "set_manual_score", teamId: pTeams[1].id, roundIdx: 0, points: 4 });
+await wait(160);
+let board = last(papHost).standings;
+assert(board[0].name === "The Regulars" && board[0].score === 7,
+  `typed scores drive the leaderboard (got ${board[0].name} ${board[0].score})`);
+assert(last(papPres).standings[0].score === 7, "the projector's leaderboard agrees");
+
+pAct({ action: "set_manual_score", teamId: pTeams[1].id, roundIdx: 1, points: 9 });
+await wait(160);
+board = last(papHost).standings;
+assert(board[0].name === "Bar Staff" && board[0].score === 13,
+  `scores accumulate across rounds (got ${board[0].name} ${board[0].score})`);
+
+pAct({ action: "set_manual_score", teamId: pTeams[0].id, roundIdx: 0, points: 2 });
+await wait(140);
+assert(last(papHost).standings.find((x) => x.name === "The Regulars").score === 2,
+  "a mistyped score can be corrected");
+
+/* ---- security ---- */
+
+/* The password is exchanged once for an expiring token; that token is what
+   travels afterwards, including in the WebSocket query string where a
+   password would end up in proxy logs. */
+const authRes = await post("/api/auth", {}, KEY);
+assert(typeof authRes.token === "string" && authRes.token.includes("."),
+  "signing in issues a session token");
+assert(!authRes.token.includes(KEY), "the token doesn't contain the password");
+assert(!(await rejects("/api/sessions", { quiz: secretQuiz }, authRes.token)),
+  "the token works in place of the password");
+assert(await rejects("/api/sessions", { quiz: secretQuiz }, authRes.token.slice(0, -4) + "aaaa"),
+  "a tampered token is refused");
+assert(await rejects("/api/sessions", { quiz: secretQuiz }, "not.atoken"),
+  "a made-up token is refused");
+
+/* A token from a different password must not work — the signing key is
+   derived from the credential, so changing it invalidates old tokens. */
+const foreign = "eyJleHAiOjk5OTk5OTk5OTk5OTl9.AAAA";
+assert(await rejects("/api/sessions", { quiz: secretQuiz }, foreign),
+  "a token signed with something else is refused");
+
+/* Guessing is rate limited rather than unlimited. */
+let limited = false;
+for (let i = 0; i < 14; i++) {
+  const r = await fetch(`${API}/api/auth`, { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer wrong-guess" },
+    body: "{}" });
+  if (r.status === 429) { limited = true; break; }
+}
+assert(limited, "repeated wrong passwords get rate limited");
+
+/* A whole venue shares one wifi address, so correct joins must never be
+   charged against the guessing budget. */
+const busy = await post("/api/sessions", { quiz: secretQuiz }, KEY);
+for (let i = 0; i < 25; i++) {
+  const r = await post("/api/join", { code: busy.joinCode, name: `Team ${i}` });
+  assert.ok = true;
+  if (r.error) { note_fail = `join ${i} was refused: ${r.error}`; break; }
+}
+assert(typeof note_fail === "undefined" || note_fail === null,
+  "twenty-five teams can join from one address without being rate limited");
+
+/* Headers that close off whole categories of problem. */
+const headRes = await fetch(`${API}/api/health`);
+assert(headRes.headers.get("x-content-type-options") === "nosniff", "nosniff is set");
+assert(headRes.headers.get("x-frame-options") === "DENY", "the app can't be framed");
+assert((headRes.headers.get("content-security-policy") ?? "").includes("frame-ancestors 'none'"),
+  "a content security policy is set");
+const pageRes = await fetch(`${API}/`);
+assert(pageRes.headers.get("content-security-policy"), "static pages carry the policy too");
 
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wgsB].forEach(w => w.close());

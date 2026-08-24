@@ -83,6 +83,11 @@ export interface Round {
   penaltyForWrong?: number;
   /** One clock for the whole round instead of one per question. */
   rapidFire?: boolean;
+  /** Show teams and the room how this round works before it starts. */
+  explainRound?: boolean;
+  /** Optional extra wording; the rest is generated from the round's settings
+      so it can't drift out of date when you change them. */
+  howItWorks?: string;
   /** Teams stake points before the question is shown. */
   wager?: boolean;
   maxWager?: number;
@@ -102,9 +107,33 @@ export interface Tiebreaker {
   timeLimit: number;
 }
 
+/** A free-standing page the host can put on the screen at any point —
+    house rules, a sponsor, "back in ten". */
+export interface InfoSlide {
+  id: string;
+  title: string;
+  body: string;
+  imageUrl?: string;
+}
+
+/** Branding for the projector, like a slide master. Everything is optional
+    and falls back to the built-in palette. */
+export interface QuizTheme {
+  logoUrl?: string;
+  /** Bottom-corner line on the projector — pub name, hashtag, sponsor. */
+  footer?: string;
+  page?: string;
+  card?: string;
+  ink?: string;
+  accent?: string;
+  highlight?: string;
+}
+
 export interface Quiz {
   id: string;
   title: string;
+  infoSlides?: InfoSlide[];
+  theme?: QuizTheme;
   rounds: Round[];
   tiebreakers: Tiebreaker[];
   updatedAt: number;
@@ -160,6 +189,7 @@ export type SessionState =
   | "round_review"
   | "leaderboard"
   | "break"
+  | "info"
   | "tiebreaker"
   | "finished";
 
@@ -170,8 +200,17 @@ export type QuestionPhase =
   | "answering"
   | "locked";
 
+/** How answers reach the scoreboard.
+    "devices" — teams answer on their own phones, as elsewhere in this app.
+    "paper"   — no team devices at all: the projector runs the quiz, teams
+                write on paper, and the host types the points in. */
+export type ScoringMode = "devices" | "paper";
+
 export interface Session {
   id: string;
+  scoring: ScoringMode;
+  /** paper mode only, keyed `${teamId}:${roundIdx}`. */
+  manualScores: Record<string, number>;
   joinCode: string;
   presenterToken: string;
   quiz: Quiz;
@@ -188,7 +227,10 @@ export interface Session {
   breakEndsAt: number | null;
   breakStartedAt: number | null;
   /** Where to go back to when the break ends. */
+  /** Where a break or an info slide should hand back to. */
   breakReturn: SessionState | null;
+  /** Which info slide is on screen, when state is "info". */
+  infoSlideId: string | null;
   teams: Team[];
   /** keyed `${teamId}:${questionId}` */
   answers: Record<string, Answer>;
@@ -240,14 +282,16 @@ export const normalise = (s: string): string =>
   (s || "").toLowerCase().trim().replace(/[^\w\s]/g, "").replace(/\s+/g, " ");
 
 export function computeStandings(session: Session): Standing[] {
+  const paper = session.scoring === "paper";
   const rows = session.teams.map((t) => {
     let score = 0;
     session.quiz.rounds.forEach((round, roundIdx) => {
-      let roundScore = 0;
-      for (const q of round.questions) {
-        const a = session.answers[answerKey(t.id, q.id)];
-        if (a && a.points != null) roundScore += a.points;
-      }
+      let roundScore = paper
+        ? session.manualScores[`${t.id}:${roundIdx}`] ?? 0
+        : round.questions.reduce((n, q) => {
+            const a = session.answers[answerKey(t.id, q.id)];
+            return n + (a && a.points != null ? a.points : 0);
+          }, 0);
       // The joker doubles a whole round, which is the point of nominating one.
       if (t.jokerRound === roundIdx) roundScore *= 2;
       score += roundScore;
@@ -264,6 +308,7 @@ export function computeStandings(session: Session): Standing[] {
 }
 
 export function countUngraded(session: Session): number {
+  if (session.scoring === "paper") return 0;
   let n = 0;
   for (const round of session.quiz.rounds) {
     for (const q of round.questions) {
@@ -601,4 +646,84 @@ export function describeAnswer(round: Round, q: Question): string {
     default:
       return q.correct;
   }
+}
+
+
+/* ---------- theming ---------- */
+
+export const DEFAULT_THEME = {
+  page: "#ECEEE6",
+  card: "#FFFFFF",
+  ink: "#15234F",
+  accent: "#2A47C4",
+  highlight: "#F5E45C",
+} as const;
+
+export interface ResolvedTheme {
+  page: string; card: string; ink: string; accent: string; highlight: string;
+  logoUrl?: string; footer?: string;
+}
+
+export function resolveTheme(t?: QuizTheme): ResolvedTheme {
+  return {
+    page: t?.page || DEFAULT_THEME.page,
+    card: t?.card || DEFAULT_THEME.card,
+    ink: t?.ink || DEFAULT_THEME.ink,
+    accent: t?.accent || DEFAULT_THEME.accent,
+    highlight: t?.highlight || DEFAULT_THEME.highlight,
+    logoUrl: t?.logoUrl,
+    footer: t?.footer,
+  };
+}
+
+/* ---------- "how this round works" ---------- */
+
+/** Generated from the round's own settings rather than typed by hand, so it
+    can't tell the room something that stopped being true three edits ago. */
+export function describeRound(round: Round): string[] {
+  const lines: string[] = [];
+  const pts = round.defaultMaxPoints;
+
+  switch (round.answerFormat) {
+    case "yes_no": lines.push("Answer yes or no."); break;
+    case "text": lines.push("Write your answer. Spelling doesn't have to be perfect."); break;
+    case "choice": lines.push("Multiple choice — tap your answer."); break;
+    case "fastest":
+      lines.push(round.bonusRule === "accuracy"
+        ? "Everyone with the best answer scores the most. Speed doesn't matter."
+        : "The first correct answer scores the most, so don't hang about.");
+      lines.push("You get one go — no changing your mind.");
+      break;
+    case "sort": lines.push("Tap a word to pick it up, then tap the group it belongs to."); break;
+    case "order": lines.push("Tap the items in order. First tap is number one."); break;
+    case "list": lines.push("Name as many as you can. Any order, one point each."); break;
+    case "match": lines.push("Pick an answer, then tap the row it pairs with."); break;
+    case "nominee": lines.push("Your nominee answers on their own phone. Guess what they said."); break;
+    case "clues": lines.push("Clues come one at a time. The longer you wait, the less it's worth."); break;
+  }
+
+  if (round.mediaType === "audio") lines.push("Listen to the clip — the clock starts when it ends.");
+  if (round.mediaType === "video") lines.push("Watch the screen — the clock starts when the clip ends.");
+  if (round.mediaType === "image") lines.push("The picture is on your phone as well as the big screen.");
+
+  if (round.answerFormat === "fastest") {
+    lines.push(`${pts} point${pts === 1 ? "" : "s"} for a correct answer, ${round.fastestPoints ?? pts + 1} for the best.`);
+  } else if (round.answerFormat !== "clues") {
+    lines.push(`${pts} point${pts === 1 ? "" : "s"} per question.`);
+  } else {
+    lines.push(`Up to ${pts} points, dropping by one per clue.`);
+  }
+
+  if (round.wager) lines.push(`Stake up to ${round.maxWager ?? 5} points before you see the question. Win it or lose it.`);
+  if (round.penaltyForWrong) lines.push(`Careful — a wrong answer costs you ${round.penaltyForWrong}.`);
+  if (round.rapidFire) lines.push(`One clock for the whole round: ${round.timeLimit} seconds for the lot.`);
+  else lines.push(`${round.timeLimit} seconds per question.`);
+
+  const powers = round.allowedPowerUps ?? [];
+  if (powers.length) {
+    lines.push(`Power-ups you can spend here: ${powers.map((p) => POWER_UP_LABELS[p].name).join(", ")}.`);
+  }
+
+  if (round.howItWorks?.trim()) lines.push(round.howItWorks.trim());
+  return lines;
 }
