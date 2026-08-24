@@ -83,6 +83,9 @@ export interface Round {
   penaltyForWrong?: number;
   /** One clock for the whole round instead of one per question. */
   rapidFire?: boolean;
+  /** Play the clip with the sound off — for a video round where the picture
+      alone is the question, or where the soundtrack would give it away. */
+  muteMedia?: boolean;
   /** Show teams and the room how this round works before it starts. */
   explainRound?: boolean;
   /** Optional extra wording; the rest is generated from the round's settings
@@ -705,7 +708,11 @@ export function describeRound(round: Round): string[] {
   }
 
   if (round.mediaType === "audio") lines.push("Listen to the clip — the clock starts when it ends.");
-  if (round.mediaType === "video") lines.push("Watch the screen — the clock starts when the clip ends.");
+  if (round.mediaType === "video") {
+    lines.push(round.muteMedia
+      ? "Watch the screen — no sound on this one. The clock starts when the clip ends."
+      : "Watch the screen — the clock starts when the clip ends.");
+  }
   if (round.mediaType === "image") lines.push("The picture is on your phone as well as the big screen.");
 
   if (round.answerFormat === "fastest") {

@@ -370,6 +370,13 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                 </div>
 
                 <div className="mb-3 flex flex-wrap gap-4">
+                  {r.mediaType !== "none" && r.mediaType !== "image" && (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={Boolean(r.muteMedia)}
+                        onChange={(e) => patchRound(r.id, { muteMedia: e.target.checked })} />
+                      Play without sound
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={Boolean(r.explainRound)}
                       onChange={(e) => patchRound(r.id, { explainRound: e.target.checked })} />

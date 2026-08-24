@@ -47,6 +47,7 @@ export function PresenterSurface({ code, token }: { code: string; token: string 
         coverPicture={round?.mediaType === "audio"}
         onEnded={() => send({ type: "media_ended" })}
         size={playing ? "projector" : "hidden"}
+        muted={Boolean(round?.muteMedia)}
         onNeedsUnlock={(unlock, needed) => setUnlockFn(() => (needed ? unlock : null))}
       />
 

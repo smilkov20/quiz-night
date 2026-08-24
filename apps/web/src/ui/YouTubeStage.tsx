@@ -119,7 +119,10 @@ export function YouTubeStage({
   const unlockedRef = useRef(false);
 
   useEffect(() => {
-    if (muted || !ready || unlockedRef.current) return;
+    // Deliberately not conditioned on `muted`: that's per round, whereas the
+    // unlock is a property of the window. A silent video round first would
+    // otherwise leave every later round without sound.
+    if (!needsUnlockRef.current || !ready || unlockedRef.current) return;
 
     const unlock = () => {
       if (unlockedRef.current) return;
@@ -139,7 +142,7 @@ export function YouTubeStage({
     window.addEventListener("pointerdown", onAnyClick, { once: true });
     needsUnlockRef.current?.(unlock, true);
     return () => window.removeEventListener("pointerdown", onAnyClick);
-  }, [ready, muted]);
+  }, [ready]);
 
   const geometry =
     size === "projector"
@@ -155,7 +158,28 @@ export function YouTubeStage({
   return (
     <>
       <div style={geometry}>
-        <div id="yt-stage" style={{ width: "100%", height: "100%" }} />
+        {/* pointer-events off so hovering can't summon the controls, which
+            carry the title and a "Watch on YouTube" link. */}
+        <div id="yt-stage" style={{ width: "100%", height: "100%", pointerEvents: "none" }} />
+
+        {/* YouTube prints the title across the top of the player for the first
+            few seconds and again on any interaction. `showinfo=0` was removed
+            in 2018 and nothing replaced it, so the only reliable fix is to
+            cover that strip. Sized to match the tallest the bar gets. */}
+        {size !== "hidden" && (
+          <>
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0,
+              height: size === "projector" ? "max(68px, 15%)" : "max(28px, 22%)",
+              background: C.ink, pointerEvents: "none",
+            }} />
+            <div style={{
+              position: "absolute", bottom: 0, left: 0, right: 0,
+              height: size === "projector" ? 44 : 20,
+              background: C.ink, pointerEvents: "none",
+            }} />
+          </>
+        )}
         {playing && coverPicture && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ background: C.card }}>
             <Waveform />

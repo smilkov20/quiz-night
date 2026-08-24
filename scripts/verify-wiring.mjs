@@ -83,6 +83,7 @@ const MUST_REACH = {
   "marking answer key": "Also accept",
   "marking from anywhere": "any round, any time",
   "sound unlock hint": "Click anywhere to enable sound",
+  "silent video option": "Play without sound",
   "round explainer": "Explain how this round works",
   "theme editor": "Look and feel",
   "tiebreaker editor": "Tiebreaker",

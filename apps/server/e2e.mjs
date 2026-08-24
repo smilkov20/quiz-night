@@ -911,6 +911,22 @@ assert(last(bkHost).session.answers[`${bkT.teamId}:bq1`].points === 2,
 assert(last(bkHost).standings.find((x) => x.teamId === bkT.teamId).score === 2,
   "and the leaderboard picks the correction up");
 
+/* A silent video round must reach the projector as a round-level flag, and
+   the explainer must tell the room there's no sound. */
+const muteQuiz = { ...secretQuiz, id:"mute", infoSlides:[], theme:{}, rounds:[
+  { id:"vr", order:0, title:"Silent film", answerFormat:"text", mediaType:"video",
+    timeLimit:30, defaultMaxPoints:1, muteMedia:true, explainRound:true,
+    questions:[{ id:"vq", order:0, prompt:"Name the film", correct:"Metropolis",
+                 accepted:[], maxPoints:null, mediaSource:"youtube", url:"",
+                 clipStart:0, clipEnd:10 }] }]};
+const mt = await post("/api/sessions", { quiz: muteQuiz }, KEY);
+const mtPres = await open(`ws://127.0.0.1:${PORT}/ws?code=${mt.joinCode}&role=presenter&token=${mt.presenterToken}`);
+await wait(180);
+assert(last(mtPres).session.quiz.rounds[0].muteMedia === true,
+  "a silent video round reaches the projector");
+assert(last(mtPres).session.quiz.rounds[0].mediaType === "video",
+  "and is still a video round, not an audio one");
+
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wgsB].forEach(w => w.close());
 process.exit(0);
