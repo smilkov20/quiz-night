@@ -425,6 +425,7 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                   </Btn>
                 )}
                 <Btn onClick={() => host({ action: "show_leaderboard" })}><Trophy size={14} /> Show leaderboard</Btn>
+                <Btn onClick={() => host({ action: "show_review" })}><Eye size={14} /> Show answers again</Btn>
                 <BreakButton onBreak={(m) => host({ action: "start_break", minutes: m })} />
                 <Btn tone="primary" onClick={() => host({ action: "next_round" })}>
                   {s.roundIdx + 1 < s.quiz.rounds.length ? "Next round" : "Finish quiz"} <ChevronRight size={14} />
@@ -527,6 +528,16 @@ export function HostSurface({ code, hostKey }: { code: string; hostKey: string }
                     </span>
                     <span className="flex items-center gap-2 flex-shrink-0">
                       {a ? <Check size={14} style={{ color: C.correct }} /> : <span className="text-xs" style={{ color: C.inkDim }}>—</span>}
+                      <button
+                        onClick={() => {
+                          const name = window.prompt(`Rename "${t.name}" to:`, t.name);
+                          if (name?.trim() && name.trim() !== t.name) {
+                            host({ action: "rename_team", teamId: t.id, name: name.trim() });
+                          }
+                        }}
+                        title="Rename team" style={{ color: C.inkDim }}>
+                        <Pencil size={13} />
+                      </button>
                       <button
                         onClick={async () => {
                           const ok = await confirm({

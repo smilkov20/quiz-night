@@ -10,7 +10,9 @@
     "typecheck": "pnpm -r typecheck",
     "test:e2e": "cd apps/server && node e2e.mjs",
     "simulate": "pnpm --filter @quiz/server simulate",
-    "hash-password": "pnpm --filter @quiz/server hash-password"
+    "hash-password": "pnpm --filter @quiz/server hash-password",
+    "verify": "node scripts/verify-wiring.mjs",
+    "test": "pnpm --filter @quiz/web build && pnpm verify && echo \"--- start the server, then: pnpm test:e2e && pnpm simulate\""
   },
   "devDependencies": {
     "typescript": "^5.6.3"

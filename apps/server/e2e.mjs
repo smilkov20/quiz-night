@@ -761,6 +761,14 @@ const papPres = await open(`ws://127.0.0.1:${PORT}/ws?code=${pap.joinCode}&role=
 await wait(150);
 assert(last(papHost).session.scoring === "paper", "a room can be opened in paper mode");
 
+/* Omitting the mode must fall back to devices — that's what a request from an
+   older client looks like, and it shouldn't silently become paper. */
+const defaulted = await post("/api/sessions", { quiz: paperQuiz }, KEY);
+const defHost = await open(`ws://127.0.0.1:${PORT}/ws?code=${defaulted.joinCode}&role=host&key=${KEY}`);
+await wait(150);
+assert(last(defHost).session.scoring === "devices",
+  "a room defaults to phones when no mode is sent");
+
 assert(await rejects("/api/join", { code: pap.joinCode, name: "Chancers" }),
   "a phone can't join a paper quiz");
 
@@ -850,6 +858,23 @@ assert((headRes.headers.get("content-security-policy") ?? "").includes("frame-an
   "a content security policy is set");
 const pageRes = await fetch(`${API}/`);
 assert(pageRes.headers.get("content-security-policy"), "static pages carry the policy too");
+
+/* A multi-select team must know how many to tick without knowing which. */
+const cntQuiz = { ...secretQuiz, id:"cnt", infoSlides:[], theme:{}, rounds:[
+  { id:"cr", order:0, title:"C", answerFormat:"choice", mediaType:"none",
+    timeLimit:30, defaultMaxPoints:3,
+    questions:[{ id:"cq", order:0, prompt:"Which?", correct:"", accepted:[], maxPoints:3,
+                 mediaSource:"none", multi:true, options:["2","4","7","9"],
+                 correctOptions:["2","7"] }] }]};
+const cnt = await post("/api/sessions", { quiz: cntQuiz }, KEY);
+const cntTeam = await post("/api/join", { code: cnt.joinCode, name: "Counters" });
+const cntWs = await open(`ws://127.0.0.1:${PORT}/ws?code=${cnt.joinCode}&role=team&teamId=${cntTeam.teamId}`);
+await wait(200);
+const cntQ = last(cntWs).session.quiz.rounds[0].questions[0];
+assert((cntQ.correctOptions ?? []).length === 2,
+  `a team is told how many to tick (got ${(cntQ.correctOptions ?? []).length})`);
+assert((cntQ.correctOptions ?? []).every((x) => x === ""),
+  "but not which ones — the values are blanked");
 
 console.log("\nALL E2E CHECKS PASSED");
 [host, pres, wsA2, wgsB].forEach(w => w.close());

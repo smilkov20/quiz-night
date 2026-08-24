@@ -37,6 +37,14 @@ presenter URL is logged to the browser console.
 For frontend hot reload while developing, `pnpm dev` runs Vite on `:5173`
 against the server on `:8787` (set `VITE_API_URL=http://localhost:8787`).
 
+Check that everything defined is actually reachable from the interface — the
+end-to-end suite drives the server directly, so it passes happily while a
+feature has no button:
+
+```bash
+pnpm build && pnpm verify
+```
+
 Play a whole quiz against a running server — host, projector, four teams and a
 nominee, every round of the demo quiz, checking at each step that all three
 surfaces agree:

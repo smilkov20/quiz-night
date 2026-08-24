@@ -602,7 +602,9 @@ export function redactQuiz(quiz: Quiz, o: RedactOptions): Quiz {
             correct: "",
             accepted: [],
             listAnswers: undefined,
-            correctOptions: undefined,
+            // Keep the count — teams must know they're looking for three —
+            // but blank the values, which are the actual answer.
+            correctOptions: q.correctOptions ? q.correctOptions.map(() => "") : undefined,
           };
           // Which word belongs where is the answer.
           if (q.items) out.items = q.items.map((i) => ({ word: i.word, category: "" }));

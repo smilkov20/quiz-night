@@ -75,7 +75,7 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
     setSaving(true);
     try {
       const res = await apiFetch<{ joinCode: string; presenterToken: string }>(
-        "/api/sessions", { method: "POST", body: JSON.stringify({ quiz }) }, hostKey
+        "/api/sessions", { method: "POST", body: JSON.stringify({ quiz, scoring }) }, hostKey
       );
       onOpenRoom(res.joinCode, res.presenterToken);
     } catch (e) {
@@ -238,6 +238,21 @@ export function EditorSurface({ hostKey, onOpenRoom }: {
                 <Upload size={13} /> Import
               </span>
             </label>
+            <span className="inline-flex items-center gap-0.5 rounded-md border p-0.5"
+              style={{ borderColor: C.rule }}
+              title="Paper mode: no team phones — the projector runs the quiz and you type the scores in">
+              {([["devices", "On phones"], ["paper", "On paper"]] as const).map(([mode, label]) => (
+                <button key={mode} onClick={() => setScoring(mode)}
+                  className="rounded px-2.5 py-1.5 text-xs whitespace-nowrap"
+                  style={{
+                    background: scoring === mode ? C.biro : "transparent",
+                    color: scoring === mode ? C.onInk : C.inkDim,
+                    fontWeight: 600,
+                  }}>
+                  {label}
+                </button>
+              ))}
+            </span>
             <Btn tone="primary" onClick={openRoom} disabled={saving}>
               <Play size={14} /> {saving ? "Opening…" : "Open the room"}
             </Btn>
